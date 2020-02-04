@@ -35,6 +35,15 @@ class GenericObservationProcessor:
         self.logger.addHandler(console_handler)
 
         self.logger.info("Reading configuration...")
+
+        if config.get("processing", "log_level") == "DEBUG":
+            self.logger.setLevel(logging.DEBUG)
+        elif config.get("processing", "log_level") == "INFO":
+            self.logger.setLevel(logging.INFO)
+        else:
+            print("Error: log_level in config file must be DEBUG or INFO. Exiting.")
+            exit(-1)
+
         # Database connection config
         self.mro_metadata_db_host = config.get("mro_metadata_db", "host")
         self.mro_metadata_db_port = config.getint("mro_metadata_db", "port")
@@ -64,11 +73,14 @@ class GenericObservationProcessor:
 
         # Get generic processor options
         self.implements_per_file_processing = config.getint("processing", "implements_per_file_processing")
-        self.concurrent_observations = config.getint("processing", "concurrent_observation_processes")
+        self.concurrent_processes = config.getint("processing", "concurrent_processes")
 
         # Queues
         self.obs_queue = asyncio.Queue()
         self.file_queue = asyncio.Queue()
+        self.files_to_process = 0
+        self.files_processed_successfully = 0
+
         self.consumers = None
 
         # Create pools
@@ -78,6 +90,9 @@ class GenericObservationProcessor:
 
     def log_info(self, obs_id, task_id, message):
         self.logger.info(f"{task_id}: {obs_id}: {message}")
+
+    def log_debug(self, obs_id, task_id, message):
+        self.logger.debug(f"{task_id}: {obs_id}: {message}")
 
     def log_error(self, obs_id, task_id, message):
         self.logger.error(f"{task_id}: {obs_id}: {message}")
@@ -120,18 +135,66 @@ class GenericObservationProcessor:
         for observation in observation_list:
             await self.obs_queue.put(observation)
 
-        # Kick off x number of consumers
-        loop = asyncio.get_event_loop()
-        self.consumers = [loop.create_task(self.observation_consumer(x)) for x in range(self.concurrent_observations)]
+        # Do processing
+        if self.implements_per_file_processing:
+            self.logger.info(f"{self.concurrent_processes} concurrent files will be processed.")
 
-        # Wait for all consumers to finish
-        await self.obs_queue.join()
+            # Loop through obs_id's one by one then kick off x number of consumers of files simultaneously
+            try:
+                self.logger.debug(f"0: Task Started")
 
-        self.logger.info("Queue empty. Cleaning up...")
+                while self.terminate is False:
+                    # Get next item
+                    obs_id = self.obs_queue.get_nowait()
 
-        # Cancel the consumers- these will be idle now anyway
-        for c in self.consumers:
-            c.cancel()
+                    # process the observation- get the list of files
+                    observation_file_list = await self.get_observation_file_list(obs_id, 0)
+                    self.files_to_process = len(observation_file_list)
+                    self.files_processed_successfully = 0
+
+                    # Enqueue items into the queue
+                    for filename in observation_file_list:
+                        await self.file_queue.put(filename)
+
+                    # process each file
+                    loop = asyncio.get_event_loop()
+                    self.consumers = [loop.create_task(self.observation_file_consumer(obs_id, x + 1))
+                                      for x in range(self.concurrent_processes)]
+
+                    await self.file_queue.join()
+
+                    self.logger.debug("0: File Queue empty. Cleaning up...")
+
+                    # Cancel the consumers- these will be idle now anyway
+                    for c in self.consumers:
+                        c.cancel()
+
+                    # Now finalise the observation, if need be (and only if all were processed successfully)
+                    if self.files_processed_successfully == self.files_to_process:
+                        await self.end_of_observation(obs_id, 0)
+
+                    # Tell queue that job is done
+                    self.obs_queue.task_done()
+            except asyncio.QueueEmpty:
+                self.logger.debug(f"0: Queue empty")
+
+            self.logger.debug(f"0: Task Complete")
+        else:
+            self.logger.info(f"{self.concurrent_processes} concurrent observations will be processed.")
+
+            # Kick off x number of consumers of observations simultaneously
+            loop = asyncio.get_event_loop()
+            self.consumers = [loop.create_task(self.observation_consumer(x + 1))
+                              for x in range(self.concurrent_processes)]
+
+            # Wait for all consumers to finish
+            await self.obs_queue.join()
+
+            self.logger.debug("0: Queue empty. Cleaning up...")
+
+            # Cancel the consumers- these will be idle now anyway
+            for c in self.consumers:
+                c.cancel()
 
         # Close pools
         try:
@@ -150,29 +213,42 @@ class GenericObservationProcessor:
 
     async def observation_consumer(self, task_id):
         try:
-            self.logger.info(f"{task_id}: Task Started")
+            self.logger.debug(f"{task_id}: Task Started")
 
             while self.terminate is False:
                 # Get next item
                 obs_id = self.obs_queue.get_nowait()
 
-                # Get file list
-                file_list = await self.get_observation_file_list(obs_id, task_id)
-
-                # Process files
-                for filename in file_list:
-                    await self.process_one_file(obs_id, task_id, filename)
-
-                # Call end of observation
-                await self.end_of_observation(obs_id, task_id)
+                # process the observation
+                await self.process_one_observation(obs_id, task_id)
 
                 # Tell queue that job is done
                 self.obs_queue.task_done()
         except asyncio.QueueEmpty:
-            self.logger.info(f"{task_id}: Queue empty")
+            self.logger.debug(f"{task_id}: Queue empty")
 
         # Mark this task as done
-        self.logger.info(f"{task_id}: Task Complete")
+        self.logger.debug(f"{task_id}: Task Complete")
+        return True
+
+    async def observation_file_consumer(self, obs_id, task_id):
+        try:
+            self.log_debug(obs_id, task_id, f"Task Started")
+
+            while self.terminate is False:
+                # Get next item
+                filename = self.file_queue.get_nowait()
+
+                if await self.process_one_file(obs_id, task_id, filename):
+                    self.files_processed_successfully += 1
+
+                # Tell queue that job is done
+                self.file_queue.task_done()
+        except asyncio.QueueEmpty:
+            self.log_debug(obs_id, task_id, "Queue empty")
+
+        # Mark this task as done
+        self.log_debug(obs_id, task_id, "Task Complete")
         return True
 
     def start(self):
@@ -187,28 +263,40 @@ class GenericObservationProcessor:
                 s, lambda s=s: loop.create_task(self.signal_handler(s, loop)))
 
         loop.run_until_complete(self.main_loop())
+
+        for s in signals:
+            loop.remove_signal_handler(s)
+
+        self.logger.debug("Closing async loop")
         loop.close()
 
         self.logger.info(f"{self.name} stopped")
+
+    async def stop(self):
+        self.terminate = True
+
+        # Wait until current tasks are done- then clear the queue so we get past queue.join
+        self.logger.debug(f"Waiting for {len(self.consumers)} tasks to complete...")
+        while len(self.consumers) > 0:
+            for c in self.consumers:
+                if c.done():
+                    self.consumers.remove(c)
+            await asyncio.sleep(0.1)
+
+        # Now they are all stopped, we can dequeue the remaining items
+        self.logger.debug("Clearing queues")
+        while self.file_queue.qsize() > 0:
+            self.file_queue.get_nowait()
+            self.file_queue.task_done()
+
+        while self.obs_queue.qsize() > 0:
+            self.obs_queue.get_nowait()
+            self.obs_queue.task_done()
 
     async def signal_handler(self, sig, frame):
         if self.logger:
             self.logger.info("Interrupted! Closing down...")
         else:
             print("Interrupted! Closing down...")
-        self.terminate = True
 
-        # Wait until current tasks are done- then clear the queue so we get past queue.join
-        while len(self.consumers) > 0:
-            for c in self.consumers:
-                if c.done():
-                    self.consumers.remove(c)
-
-            self.logger.info(f"Waiting for {len(self.consumers)} tasks to complete...")
-            await asyncio.sleep(1)
-
-        # Now they are all stopped, we can dequeue the remaining items
-        self.logger.info("Clearing queue")
-        while self.obs_queue.qsize() > 0:
-            self.obs_queue.get_nowait()
-            self.obs_queue.task_done()
+        await self.stop()
