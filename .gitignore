@@ -1,1 +1,8 @@
-prod_config.cfg
+.idea/
+archive_processing.egg-info/
+build/
+cfg/offline_compress.cfg
+cfg/test_processor.cfg
+dist/
+env/
+logs/

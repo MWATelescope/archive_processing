@@ -1,16 +1,12 @@
-from generic_observation_processor import GenericObservationProcessor
-
-import asyncio
-import asyncpg
-from configparser import ConfigParser
-from mantaray.mantaray.sql import ngas
+from core.generic_observation_processor import GenericObservationProcessor
 
 import argparse
+from configparser import ConfigParser
 import os
 
 
 class OfflineCompressProcessor(GenericObservationProcessor):
-    async def get_observations_to_process(self, pool):
+    async def get_observation_list(self):
         self.logger.info("Getting list of observations...")
         return []
 

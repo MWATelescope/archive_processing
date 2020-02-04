@@ -1,7 +1,7 @@
 import asyncio
 import json
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 import struct
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 
 class StagingError(Exception):
