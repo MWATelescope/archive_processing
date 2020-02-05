@@ -1,55 +1,54 @@
-from core.generic_observation_processor import GenericObservationProcessor
-
 import argparse
-import asyncio
 from configparser import ConfigParser
+from core.generic_observation_processor import GenericObservationProcessor
 import os
-import math
+import random
+import time
 
 
 class TestProcessor(GenericObservationProcessor):
     def __init__(self, processor_name, config):
         super().__init__(processor_name, config)
 
-    async def get_observation_list(self):
+    def get_observation_list(self):
         self.logger.info(f"Getting list of observations...")
         observation_list = ["1234567890", "1234567891", "1234567892", "1234567893", "1234567894", ]
         self.logger.info(f"{len(observation_list)} observations to process.")
         return observation_list
 
-    async def process_one_observation(self, obs_id, task_id):
-        self.log_info(obs_id, task_id, f"Starting...")
-
+    def long_running_task(self):
         a, b = 0, 1
-        i = 0
 
-        while i <= 100000:
+        for i in range(random.randint(500000, 1000000)):
             nth = a + b
             a = b
             b = nth
-            i = i + 1
 
-        self.log_info(obs_id, task_id, f"Complete ({self.obs_queue.qsize()} remaining in queue).")
+    def process_one_observation(self, obs_id):
+        self.log_info(obs_id, f"Starting... ({self.obs_queue.qsize()} remaining in queue)")
+
+        self.long_running_task()
+
+        self.log_info(obs_id, f"Complete.")
         return True
 
-    async def get_observation_file_list(self, obs_id, task_id):
-        self.log_info(obs_id, task_id, f"Getting list of files...")
+    def get_observation_file_list(self, obs_id):
+        self.log_info(obs_id, f"Getting list of files...")
         file_list = ["testfile1", "testfile2", "testfile3", "testfile4", "testfile5", "testfile6", "testfile7", ]
-        self.log_info(obs_id, task_id, f"{len(file_list)} files to process.")
+        self.log_info(obs_id, f"{len(file_list)} files to process.")
         return file_list
 
-    async def process_one_file(self, obs_id, task_id, filename):
-        self.log_info(obs_id, task_id, f"{filename}: Starting...")
-        await asyncio.sleep(5)
-        self.log_info(obs_id, task_id, f"{filename}: Complete ({self.file_queue.qsize()} remaining in queue).")
+    def process_one_file(self, obs_id, filename):
+        self.log_info(obs_id, f"{filename}: Starting... ({self.file_queue.qsize()} remaining in queue)")
+        time.sleep(random.randint(2, 7))
+        self.log_info(obs_id, f"{filename}: Complete.")
         return True
 
-    async def end_of_observation(self, obs_id, task_id):
+    def end_of_observation(self, obs_id):
         # This file was successfully processed
-        self.log_info(obs_id, task_id, f"Finalising observation starting.")
-        await asyncio.sleep(2)
-        self.log_info(obs_id, task_id, f"Finalising observation complete "
-                                       f"({self.obs_queue.qsize()} remaining in queue).")
+        self.log_info(obs_id, f"Finalising observation starting...")
+        time.sleep(random.randint(1, 3))
+        self.log_info(obs_id, f"Finalising observation complete.")
         return True
 
 
