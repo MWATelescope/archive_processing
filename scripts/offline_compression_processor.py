@@ -1,43 +1,129 @@
-from core.generic_observation_processor import GenericObservationProcessor
-
 import argparse
 from configparser import ConfigParser
+import core.mwa_archiving
+import core.mwa_fits
+from core.mwa_metadata import MWAFileTypeFlags, MWADataQualityFlags
+from core.generic_observation_processor import GenericObservationProcessor
 import os
+import time
 
 
 class OfflineCompressProcessor(GenericObservationProcessor):
-    async def get_observation_list(self):
-        self.logger.info("Getting list of observations...")
-        return []
+    def __init__(self, processor_name, config):
+        super().__init__(processor_name, config)
+        self.last_uvcompress_obsid = 1095108744  # this is the last obsid which requires uvcompress
+        self.last_uncompressed_obsid = 1178606168  # this (I think) is the last obsid which requires any compression
 
-    async def process_one_observation(self, obs_id):
-        # Get file list
-        file_list = await self.retrieive_file_list(pool, obs_id)
+    def get_observation_list(self) -> list:
+        self.logger.info(f"Getting list of observations...")
 
-        if file_list is None:
-            return False
+        observation_list = []
 
-        # Stage files
-        if not await self.stage_observation(obs_id, file_list):
-            return False
+        sql = f"""SELECT s.starttime As obs_id 
+                  FROM mwa_setting s
+                  WHERE
+                      starttime > {self.last_uvcompress_obsid}
+                  AND starttime < {self.last_uncompressed_obsid}
+                  AND dataquality IN ({MWADataQualityFlags.GOOD.value}
+                                     ,{MWADataQualityFlags.SOME_ISSUES.value})
+                  AND EXISTS (SELECT 1 
+                              FROM data_files d 
+                              WHERE d.observation_num = s.starttime
+                              AND   d.deleted = False
+                              AND   d.remote_archived = True
+                              AND   d.filetype = {MWAFileTypeFlags.GPUBOX_FILE.value}) 
+                  ORDER BY s.starttime"""
 
-        # Compress files
-        if not await self.compress_files(obs_id, file_list):
-            return False
+        # Execute query
+        results = core.mwa_metadata.run_sql_get_many_rows(self.mro_metadata_db_pool, sql, (project_id, ))
+
+        if results:
+            observation_list = [r['obs_id'] for r in results]
+        else:
+            return observation_list
+
+        self.logger.info(f"{len(observation_list)} observations to process.")
+        return observation_list
+
+    def process_one_observation(self, obs_id) -> bool:
+        self.log_info(obs_id, f"Starting processing ({self.observation_queue.qsize()} remaining in queue)")
 
         # This observation was successfully processed
+        self.log_info(obs_id, f"Complete. Commencing processing of files...")
         return True
 
-    async def compress_files(self, obs_id, file_list):
-        self.log_info(obs_id, f"Compressing {len(file_list)} files...")
+    def get_observation_item_list(self, obs_id) -> list:
+        self.log_info(obs_id, f"Getting list of files...")
 
+        # Get MWA file list
         try:
-            for filename in file_list:
-                pass
+            mwa_file_list = core.mwa_metadata.get_obs_gpubox_filenames(self.mro_metadata_db_pool, obs_id)
+        except Exception:
+            self.log_exception(obs_id, "Could not get gpubox files for obs_id.")
+            return []
 
-        except Exception as compress_exception:
-            self.log_exception(obs_id, "Exception in compress_file()", compress_exception)
-            return False
+        if len(mwa_file_list) == 0:
+            self.log_error(obs_id, f"No gpubox files found in mwa database")
+            return []
+
+        # Get NGAS file list, based on the mwa metadata list
+        try:
+            ngas_file_list = core.mwa_metadata.get_ngas_file_path_and_address_for_filename_list(self.ngas_db_pool,
+                                                                                                mwa_file_list)
+        except Exception:
+            self.log_exception(obs_id, "Could not get ngas files for obs_id.")
+            return []
+
+        if len(ngas_file_list) == 0:
+            self.log_error(obs_id, f"No gpubox files found in ngas database")
+            return []
+
+        if len(mwa_file_list) != len(ngas_file_list):
+            self.log_error(obs_id, f"MWA gpubox file count {len(mwa_file_list)} does not match "
+                                   f"ngas file count {len(ngas_file_list)}")
+            return []
+
+        #
+        # Stage the files on the Pawsey filesystem
+        #
+        self.log_info(obs_id, f"Staging {len(ngas_file_list)} files from tape...")
+        t1 = time.time()
+        core.mwa_archiving.pawsey_stage_files(ngas_file_list,
+                                              self.staging_host, self.staging_port)
+        t2 = time.time()
+
+        self.log_info(obs_id, f"Staging {len(ngas_file_list)} files from tape complete ({t2-t1:0.0} seconds).")
+
+        self.log_info(obs_id, f"{len(ngas_file_list)} files to process.")
+
+        return ngas_file_list
+
+    def process_one_item(self, obs_id, item) -> bool:
+        # item is a full file path. Split it so we get the filename only
+        filename = os.path.split(item)[1]
+
+        self.log_info(obs_id, f"{filename}: Starting... ({self.observation_item_queue.qsize()} remaining in queue)")
+
+        # Determine output filename
+        output_filename = self.get_working_filename_and_path(obs_id, filename)
+
+        # Compress
+        if not core.mwa_fits.is_fits_compressed(item):
+            core.mwa_fits.fits_compress(item, output_filename)
+
+        # Archive
+
+        # Update Metadata
+
+        self.log_info(obs_id, f"{filename}: Complete.")
+        return True
+
+    def end_of_observation(self, obs_id) -> bool:
+        # This file was successfully processed
+        self.log_info(obs_id, f"Finalising observation starting...")
+
+        self.log_info(obs_id, f"Finalising observation complete.")
+        return True
 
 
 def main():
@@ -65,7 +151,7 @@ def main():
     config.read(cfg_file)
 
     # Create class instance
-    processor = OfflineCompressProcessor("offline_compress_processor")
+    processor = OfflineCompressProcessor("offline_compress_processor", config)
 
     # Initialise
     processor.start()

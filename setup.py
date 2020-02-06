@@ -8,4 +8,4 @@ setup(name='archive_processing',
       author_email='operatuibs@mwatelescope.org',
       url='http://www.mwatelescope.org',
       packages=find_packages(),
-      entry_points={'console_scripts': ['test_processor = scripts.test_processor:main']})
+      entry_points={'console_scripts': ['test_processor = scripts.test_processor:main', 'offline_compression_processor = scripts.offline_compression_processor:main']})

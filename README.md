@@ -10,3 +10,34 @@ This repo will eventually comprise the following utilities all using a common fr
 These utilities run at Pawsey to support MWA Archive Operations.
 
 * test_processor: A test processor to ensure the framework is working correctly.
+
+There are two modes to running a subclass of the GenericObservationProcessor:
+* Per observation: This allows the subclass to execute code per observation.
+* Per observation and items within an observation: This allows the subclass to execute code at the observation level, and also at the per item level. Items can be anything but for cases will be data files belonging to that observation.
+
+The GenericObservationProcessor executes the following (in pseudocode):
+
+```
+get_observation_list()
+
+if implements_per_item_processing:
+    for each obs_id:
+        process_one_observation(obs_id)
+        
+        get_observation_item_list(obs_id)
+        
+        for each item:
+            process_one_observation_item(obs_id, item)
+        
+        end_of_observation(obs_id)
+else:
+    for each obs_id:
+        process_one_observation(obs_id)
+```
+
+The subclass is responsible for overriding these methods:
+* get_observation_list()
+* process_one_observation(obs_id)
+* get_observation_item_list(obs_id) (for per item mode only)
+* process_one_observation_item(obs_id, item) (for per item mode only)
+* end_of_observation(obs_id) (for per item mode only)
