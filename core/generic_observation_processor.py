@@ -3,6 +3,7 @@ import logging.handlers
 import os
 import psycopg2.pool
 import queue
+import shutil
 import signal
 import threading
 import time
@@ -75,6 +76,11 @@ class GenericObservationProcessor:
         self.concurrent_processes = config.getint("processing", "concurrent_processes")
         self.working_path = config.get("processing", "working_path")
 
+        # Check working path
+        if not os.path.exists(self.working_path):
+            logging.error(f"Working path specified in configuration {self.working_path} is not valid.")
+            exit(-1)
+
         # Queues
         self.observation_queue = queue.Queue()
         self.observation_item_queue = queue.Queue()
@@ -121,18 +127,21 @@ class GenericObservationProcessor:
         path_to_create = os.path.join(self.working_path, obs_id)
 
         if os.path.exists(path_to_create):
-            pass
-        else:
-            # Create directory
-            os.mkdir(path_to_create, int(0o755))
-            self.log_info(f"Created directory {path_to_create}...")
+            # The folder exists, lets delete it and it's contents just in case
+            self.cleanup_working_directory(obs_id)
+
+        # Now Create directory
+        os.mkdir(path_to_create, int(0o755))
+        self.log_debug(f"Created directory {path_to_create}...")
 
     def cleanup_working_directory(self, obs_id):
         path_to_clean = os.path.join(self.working_path, obs_id)
 
         if os.path.exists(path_to_clean):
+            self.log_debug(f"Removing directory and contents of {path_to_clean}...")
+
             # Remove any files in there
-            os.dir
+            shutil.rmtree(path_to_clean)
 
             # Remove the directory
             os.rmdir(path_to_clean)
@@ -271,6 +280,9 @@ class GenericObservationProcessor:
 
                         self.log_info(obs_id, "Started")
 
+                        # Prepare a working area for this observatoin
+                        self.prepare_working_directory(obs_id)
+
                         observation_result = False
 
                         # give the caller a chance to process the observation itself
@@ -318,6 +330,9 @@ class GenericObservationProcessor:
                         # Tell queue that job is done
                         self.observation_queue.task_done()
 
+                        # Cleanup any temp files in working area
+                        self.cleanup_working_directory(obs_id)
+
                         # Update stats
                         self.current_observations.remove(obs_id)
 
@@ -363,6 +378,9 @@ class GenericObservationProcessor:
 
                 self.log_info(obs_id, "Started")
 
+                # Prepare a working area
+                self.prepare_working_directory(obs_id)
+
                 # process the observation
                 try:
                     if self.process_one_observation(obs_id):
@@ -374,6 +392,9 @@ class GenericObservationProcessor:
 
                     # Tell queue that job is done
                     self.observation_queue.task_done()
+
+                    # Cleanup any temp files in working area
+                    self.cleanup_working_directory(obs_id)
 
                     # Update stat on what we're working on
                     self.current_observations.remove(obs_id)

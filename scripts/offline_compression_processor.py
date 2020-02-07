@@ -2,7 +2,7 @@ import argparse
 from configparser import ConfigParser
 import core.mwa_archiving
 import core.mwa_fits
-from core.mwa_metadata import MWAFileTypeFlags, MWADataQualityFlags
+from core.mwa_metadata import MWAFileTypeFlags, MWADataQualityFlags, MWAModeFlags
 from core.generic_observation_processor import GenericObservationProcessor
 import os
 import time
@@ -22,6 +22,7 @@ class OfflineCompressProcessor(GenericObservationProcessor):
         sql = f"""SELECT s.starttime As obs_id 
                   FROM mwa_setting s
                   WHERE
+                      mode = {MWAModeFlags.HW_LFILES.value}  
                       starttime > {self.last_uvcompress_obsid}
                   AND starttime < {self.last_uncompressed_obsid}
                   AND dataquality IN ({MWADataQualityFlags.GOOD.value}
@@ -32,10 +33,10 @@ class OfflineCompressProcessor(GenericObservationProcessor):
                               AND   d.deleted = False
                               AND   d.remote_archived = True
                               AND   d.filetype = {MWAFileTypeFlags.GPUBOX_FILE.value}) 
-                  ORDER BY s.starttime"""
+                  ORDER BY s.starttime LIMIT 5"""
 
         # Execute query
-        results = core.mwa_metadata.run_sql_get_many_rows(self.mro_metadata_db_pool, sql, (project_id, ))
+        results = core.mwa_metadata.run_sql_get_many_rows(self.mro_metadata_db_pool, sql, None)
 
         if results:
             observation_list = [r['obs_id'] for r in results]
