@@ -1,6 +1,5 @@
 import argparse
 from configparser import ConfigParser
-import core.mwa_archiving
 import core.mwa_fits
 from core.mwa_metadata import MWAFileTypeFlags, MWADataQualityFlags, MWAModeFlags
 from core.generic_observation_processor import GenericObservationProcessor
@@ -22,21 +21,26 @@ class OfflineCompressProcessor(GenericObservationProcessor):
         sql = f"""SELECT s.starttime As obs_id 
                   FROM mwa_setting s
                   WHERE
-                      mode = {MWAModeFlags.HW_LFILES.value}  
-                      starttime > {self.last_uvcompress_obsid}
-                  AND starttime < {self.last_uncompressed_obsid}
-                  AND dataquality IN ({MWADataQualityFlags.GOOD.value}
-                                     ,{MWADataQualityFlags.SOME_ISSUES.value})
+                      mode = %s  
+                  AND starttime > %s
+                  AND starttime < %s
+                  AND dataquality IN (%s, %s)
                   AND EXISTS (SELECT 1 
                               FROM data_files d 
                               WHERE d.observation_num = s.starttime
                               AND   d.deleted = False
                               AND   d.remote_archived = True
-                              AND   d.filetype = {MWAFileTypeFlags.GPUBOX_FILE.value}) 
-                  ORDER BY s.starttime LIMIT 5"""
+                              AND   d.filetype = %s) 
+                  ORDER BY s.starttime LIMIT 2"""
 
         # Execute query
-        results = core.mwa_metadata.run_sql_get_many_rows(self.mro_metadata_db_pool, sql, None)
+        params = (MWAModeFlags.HW_LFILES.value,
+                  self.last_uvcompress_obsid,
+                  self.last_uncompressed_obsid,
+                  MWADataQualityFlags.GOOD.value,
+                  MWADataQualityFlags.SOME_ISSUES.value,
+                  MWAFileTypeFlags.GPUBOX_FILE.value, )
+        results = core.mwa_metadata.run_sql_get_many_rows(self.mro_metadata_db_pool, sql, params)
 
         if results:
             observation_list = [r['obs_id'] for r in results]
@@ -48,12 +52,9 @@ class OfflineCompressProcessor(GenericObservationProcessor):
 
     def process_one_observation(self, obs_id) -> bool:
         self.log_info(obs_id, f"Starting processing ({self.observation_queue.qsize()} remaining in queue)")
-
-        # This observation was successfully processed
-        self.log_info(obs_id, f"Complete. Commencing processing of files...")
         return True
 
-    def get_observation_item_list(self, obs_id) -> list:
+    def get_observation_staging_file_list(self, obs_id) -> list:
         self.log_info(obs_id, f"Getting list of files...")
 
         # Get MWA file list
@@ -84,20 +85,11 @@ class OfflineCompressProcessor(GenericObservationProcessor):
                                    f"ngas file count {len(ngas_file_list)}")
             return []
 
-        #
-        # Stage the files on the Pawsey filesystem
-        #
-        self.log_info(obs_id, f"Staging {len(ngas_file_list)} files from tape...")
-        t1 = time.time()
-        core.mwa_archiving.pawsey_stage_files(ngas_file_list,
-                                              self.staging_host, self.staging_port)
-        t2 = time.time()
-
-        self.log_info(obs_id, f"Staging {len(ngas_file_list)} files from tape complete ({t2-t1:0.0} seconds).")
-
-        self.log_info(obs_id, f"{len(ngas_file_list)} files to process.")
-
         return ngas_file_list
+
+    def get_observation_item_list(self, obs_id, staging_file_list) -> list:
+        # Just return what we staged
+        return staging_file_list
 
     def process_one_item(self, obs_id, item) -> bool:
         # item is a full file path. Split it so we get the filename only

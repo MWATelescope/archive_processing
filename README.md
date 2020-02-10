@@ -24,6 +24,9 @@ if implements_per_item_processing:
     for each obs_id:
         process_one_observation(obs_id)
         
+        file_list = get_staging_file_list(obs_id)        
+        stage_files(obs_id, file_list)
+
         get_observation_item_list(obs_id)
         
         for each item:
@@ -32,6 +35,9 @@ if implements_per_item_processing:
         end_of_observation(obs_id)
 else:
     for each obs_id:
+        file_list = get_staging_file_list(obs_id)
+        stage_files(obs_id, file_list)
+
         process_one_observation(obs_id)
 ```
 

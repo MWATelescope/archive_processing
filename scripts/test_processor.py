@@ -32,6 +32,12 @@ class TestProcessor(GenericObservationProcessor):
         self.log_info(obs_id, f"Complete.")
         return True
 
+    def get_observation_staging_file_list(self, obs_id) -> list:
+        self.log_info(obs_id, f"Getting list of files to stage...")
+        file_list = ["testfile1", "testfile2", "testfile3", "testfile4", "testfile5", "testfile6", "testfile7", ]
+        self.log_info(obs_id, f"{len(file_list)} files to stage.")
+        return file_list
+
     def get_observation_item_list(self, obs_id) -> list:
         self.log_info(obs_id, f"Getting list of files...")
         file_list = ["testfile1", "testfile2", "testfile3", "testfile4", "testfile5", "testfile6", "testfile7", ]

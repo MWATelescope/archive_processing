@@ -1,4 +1,6 @@
+import core.mwa_archiving
 import core.processor_webservice
+import glob
 import logging.handlers
 import os
 import psycopg2.pool
@@ -67,6 +69,8 @@ class GenericObservationProcessor:
         # Staging config
         self.staging_host = config.get("staging", "dmget_host")
         self.staging_port = config.getint("staging", "dmget_port")
+        self.staging_retry_attempts = config.getint("staging", "retry_attempts")
+        self.staging_backoff_seconds = config.getint("staging", "backoff_seconds")
 
         # Web server config
         self.web_service_port = config.get("web_service", "port")
@@ -76,12 +80,18 @@ class GenericObservationProcessor:
         self.concurrent_processes = config.getint("processing", "concurrent_processes")
         self.working_path = config.get("processing", "working_path")
 
+        self.logger.info(f"Checking and cleaning working path {self.working_path}...")
+
         # Check working path
         if not os.path.exists(self.working_path):
-            logging.error(f"Working path specified in configuration {self.working_path} is not valid.")
+            self.logger.error(f"Working path specified in configuration {self.working_path} is not valid.")
             exit(-1)
 
+        # Clean working path
+        self.cleanup_root_working_directory()
+
         # Queues
+        self.logger.info("Initialising...")
         self.observation_queue = queue.Queue()
         self.observation_item_queue = queue.Queue()
 
@@ -121,30 +131,50 @@ class GenericObservationProcessor:
 
     def get_working_filename_and_path(self, obs_id, filename):
         # will return working_path/obs_id/filename
-        return os.path.join(self.working_path, obs_id, filename)
+        return os.path.join(self.working_path, str(obs_id), filename)
 
-    def prepare_working_directory(self, obs_id):
-        path_to_create = os.path.join(self.working_path, obs_id)
+    def cleanup_root_working_directory(self):
+        path_to_clean = os.path.join(self.working_path, "*")
+
+        if os.path.exists(self.working_path):
+            self.logger.debug(f"Removing contents of {self.working_path}...")
+
+            # Remove any files/folders in there
+            files = glob.glob(path_to_clean)
+
+            for f in files:
+                if os.path.isfile(f):
+                    self.logger.debug(f"Deleting file {f}")
+                    os.remove(f)
+                else:
+                    self.logger.debug(f"Deleting folder {f}")
+                    shutil.rmtree(f)
+        else:
+            # Nothing to do
+            pass
+
+    def prepare_observation_working_directory(self, obs_id):
+        obs_id_str = str(obs_id)
+
+        path_to_create = os.path.join(self.working_path, obs_id_str)
 
         if os.path.exists(path_to_create):
             # The folder exists, lets delete it and it's contents just in case
-            self.cleanup_working_directory(obs_id)
+            self.cleanup_observation_working_directory(obs_id)
 
         # Now Create directory
         os.mkdir(path_to_create, int(0o755))
-        self.log_debug(f"Created directory {path_to_create}...")
+        self.log_debug(obs_id, f"Created directory {path_to_create}...")
 
-    def cleanup_working_directory(self, obs_id):
-        path_to_clean = os.path.join(self.working_path, obs_id)
+    def cleanup_observation_working_directory(self, obs_id):
+        obs_id_str = str(obs_id)
+        path_to_clean = os.path.join(self.working_path, obs_id_str)
 
         if os.path.exists(path_to_clean):
-            self.log_debug(f"Removing directory and contents of {path_to_clean}...")
+            self.log_debug(obs_id, f"Removing directory and contents of {path_to_clean}...")
 
             # Remove any files in there
             shutil.rmtree(path_to_clean)
-
-            # Remove the directory
-            os.rmdir(path_to_clean)
         else:
             # Nothing to do
             pass
@@ -172,8 +202,14 @@ class GenericObservationProcessor:
         # This is to be supplied by the inheritor.
         raise NotImplementedError()
 
-    def get_observation_item_list(self, obs_id) -> list:
+    def get_observation_staging_file_list(self, obs_id) -> list:
         # This is to be supplied by the inheritor. Using SQL or whatever to get a list of files for the current obs_id
+        # which are to be staged
+        # If implements_per_item_processing == 0 then just 'pass'
+        raise NotImplementedError()
+
+    def get_observation_item_list(self, obs_id, staging_file_list) -> list:
+        # This is to be supplied by the inheritor. We pass in the list of staged files for the current obs_id
         # If implements_per_item_processing == 0 then just 'pass'
         raise NotImplementedError()
 
@@ -186,6 +222,58 @@ class GenericObservationProcessor:
         # This is to be supplied by the inheritor.
         # If implements_per_item_processing == 0 then just 'pass'
         raise NotImplementedError()
+
+    def stage_files(self, obs_id, file_list, retry_attempts, backoff_seconds) -> bool:
+        # This can be overridden by the inheritor, e.g. if you didn't want to stage anything, just return True
+
+        # The passed in list of files should be Pawsey DMF paths.
+        # The dmget daemon just needs filenames so sanitise it first
+        filename_list = []
+
+        for file in file_list:
+            # item is a full file path. Split it so we get the filename only
+            filename_list.append(os.path.split(file)[1])
+
+        #
+        # Stage the files on the Pawsey filesystem
+        #
+        attempts = 1
+
+        t1 = time.time()
+
+        # While we have attempts left and we are not shutting down
+        while attempts <= retry_attempts and self.terminate is False:
+            if attempts == 1:
+                self.log_info(obs_id, f"Staging {len(filename_list)} files from tape... ")
+            else:
+                self.log_info(obs_id, f"Staging {len(filename_list)} files from tape... "
+                                      f"(attempt {attempts}/{retry_attempts})")
+
+            try:
+                # Staging will return 0 on success or non zero on staging error or raise exception on other failure
+                exit_code = core.mwa_archiving.pawsey_stage_files(filename_list,
+                                                                  self.staging_host,
+                                                                  self.staging_port)
+                t2 = time.time()
+
+                if exit_code == 0:
+                    self.log_info(obs_id, f"Staging {len(filename_list)} files from tape complete ({t2 - t1:.2f} seconds).")
+                    return True
+                else:
+                    self.log_error(obs_id, f"Staging failed with return code {exit_code}.")
+            except Exception as staging_error:
+                self.log_error(obs_id, f"Staging failed with other exception condition {str(staging_error)}.")
+
+            self.log_debug(obs_id, f"Backing off {backoff_seconds} seconds trying to stage data.")
+            time.sleep(backoff_seconds)
+            attempts += 1
+
+        # If we get here, we give up, or we are terminating
+        if not self.terminate:
+            t2 = time.time()
+            self.log_error(obs_id, f"Staging failed too many times. Gave up after trying {retry_attempts} "
+                                   f"times and {t2 - t1:.2f} seconds.")
+        return False
 
     def web_server_loop(self, web_server):
         web_server.serve_forever()
@@ -281,57 +369,73 @@ class GenericObservationProcessor:
                         self.log_info(obs_id, "Started")
 
                         # Prepare a working area for this observatoin
-                        self.prepare_working_directory(obs_id)
+                        self.prepare_observation_working_directory(obs_id)
 
                         observation_result = False
 
-                        # give the caller a chance to process the observation itself
+                        # give the caller a chance to do something on the observation itself
                         try:
                             observation_result = self.process_one_observation(obs_id)
                         except Exception:
                             self.log_exception(obs_id, "Exception in process_one_observation()")
 
-                        if observation_result:
-                            # now get the list of files
-                            observation_item_list = self.get_observation_item_list(obs_id)
-                            self.items_to_process = len(observation_item_list)
-                            self.items_processed_successfully = 0
+                        if observation_result and not self.terminate:
+                            # Get files needed for staging
+                            staging_file_list = self.get_observation_staging_file_list(obs_id)
 
-                            # Enqueue items into the queue
-                            for filename in observation_item_list:
-                                self.observation_item_queue.put(filename)
+                            # Do staging
+                            if self.stage_files(obs_id,
+                                                staging_file_list,
+                                                self.staging_retry_attempts,
+                                                self.staging_backoff_seconds):
+                                # Staging can take a while- ensure we are not terminating
+                                if not self.terminate:
+                                    # now get the list of items to process (this may be different to the staging list!)
+                                    observation_item_list = self.get_observation_item_list(obs_id, staging_file_list)
+                                    self.items_to_process = len(observation_item_list)
+                                    self.items_processed_successfully = 0
 
-                            # process each file
-                            for thread_id in range(self.concurrent_processes):
-                                new_thread = threading.Thread(name=f"t{thread_id+1}", target=self.observation_item_consumer,
-                                                              args=(obs_id,))
-                                self.consumer_threads.append(new_thread)
+                                    # Enqueue items into the queue
+                                    for filename in observation_item_list:
+                                        self.observation_item_queue.put(filename)
 
-                            # Start all threads
-                            for thread in self.consumer_threads:
-                                thread.start()
+                                    # process each file
+                                    for thread_id in range(self.concurrent_processes):
+                                        new_thread = threading.Thread(name=f"t{thread_id+1}",
+                                                                      target=self.observation_item_consumer,
+                                                                      args=(obs_id,))
+                                        self.consumer_threads.append(new_thread)
 
-                            self.observation_item_queue.join()
+                                    # Start all threads
+                                    for thread in self.consumer_threads:
+                                        thread.start()
 
-                            self.logger.debug("File Queue empty. Cleaning up...")
+                                    self.observation_item_queue.join()
 
-                            # Cancel the consumers- these will be idle now anyway
-                            for thread in self.consumer_threads:
-                                thread.join()
+                                    self.logger.debug("File Queue empty. Cleaning up...")
 
-                            # Reset consumer theads list for next loop
-                            self.consumer_threads = []
+                                    # Cancel the consumers- these will be idle now anyway
+                                    for thread in self.consumer_threads:
+                                        thread.join()
 
-                            # Now finalise the observation, if need be (and only if all were processed successfully)
-                            if self.items_processed_successfully == self.items_to_process:
-                                if self.end_of_observation(obs_id):
-                                    self.observations_processed_successfully = self.observations_processed_successfully + 1
+                                    # Reset consumer theads list for next loop
+                                    self.consumer_threads = []
+
+                                    # Now finalise the observation, if need be
+                                    # (and only if all were processed successfully)
+                                    if self.items_processed_successfully == self.items_to_process:
+                                        if self.end_of_observation(obs_id):
+                                            self.observations_processed_successfully = self.observations_processed_successfully + 1
+                            else:
+                                # We couldn't stage the files
+                                # Just skip it
+                                self.log_error(obs_id, "Unable to stage files- skipping this observation.")
 
                         # Tell queue that job is done
                         self.observation_queue.task_done()
 
                         # Cleanup any temp files in working area
-                        self.cleanup_working_directory(obs_id)
+                        self.cleanup_observation_working_directory(obs_id)
 
                         # Update stats
                         self.current_observations.remove(obs_id)
@@ -361,6 +465,14 @@ class GenericObservationProcessor:
                 for thread in self.consumer_threads:
                     thread.join()
 
+        # Stopped
+        self.logger.debug("main() stopped. ")
+
+        # Uncomment this if there are loose threads!
+        # for thread in threading.enumerate():
+        #    if thread.name != "MainThread":
+        #        self.logger.debug(f"Thread: {thread.name} is still running, but it shouldn't be.")
+
     def observation_consumer(self):
         try:
             while self.terminate is False:
@@ -379,25 +491,39 @@ class GenericObservationProcessor:
                 self.log_info(obs_id, "Started")
 
                 # Prepare a working area
-                self.prepare_working_directory(obs_id)
+                self.prepare_observation_working_directory(obs_id)
 
-                # process the observation
-                try:
-                    if self.process_one_observation(obs_id):
-                        self.observations_processed_successfully = self.observations_processed_successfully + 1
-                except Exception:
-                    self.log_exception(obs_id, "Exception in process_one_observation()")
-                finally:
-                    self.log_info(obs_id, "Complete")
+                # Get files needed for staging
+                staging_file_list = self.get_observation_staging_file_list(obs_id)
 
-                    # Tell queue that job is done
-                    self.observation_queue.task_done()
+                # Stage the files
+                if self.stage_files(obs_id,
+                                    staging_file_list,
+                                    self.staging_retry_attempts,
+                                    self.staging_backoff_seconds):
+                    # Staging can take a while check if we are terminating
+                    if not self.terminate:
+                        # process the observation
+                        try:
+                            if self.process_one_observation(obs_id):
+                                self.observations_processed_successfully = self.observations_processed_successfully + 1
+                        except Exception:
+                            self.log_exception(obs_id, "Exception in process_one_observation()")
+                else:
+                    # We couldn't stage the files
+                    # Just skip it
+                    self.log_error(obs_id, "Unable to stage files- skipping this observation.")
 
-                    # Cleanup any temp files in working area
-                    self.cleanup_working_directory(obs_id)
+                # Tell queue that job is done
+                self.observation_queue.task_done()
 
-                    # Update stat on what we're working on
-                    self.current_observations.remove(obs_id)
+                # Cleanup any temp files in working area
+                self.cleanup_observation_working_directory(obs_id)
+
+                # Update stat on what we're working on
+                self.current_observations.remove(obs_id)
+
+                self.log_info(obs_id, "Complete")
 
         except queue.Empty:
             self.logger.debug(f"Queue empty")
@@ -480,10 +606,9 @@ class GenericObservationProcessor:
                 self.observation_queue.task_done()
 
             # End the web server
-            self.logger.info("Stopping webserver...")
-            self.web_server.socket.close()
-            self.web_server.server_close()
-            self.web_server_thread.join(timeout=4)
+            self.logger.info("Webserver stopping...")
+            self.web_server.shutdown()
+            self.logger.debug("Webserver stopped. ")
 
             self.terminated = True
 
