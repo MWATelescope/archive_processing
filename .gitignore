@@ -6,3 +6,4 @@ cfg/test_processor.cfg
 dist/
 env/
 logs/
+wheels/

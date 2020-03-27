@@ -8,8 +8,8 @@ import time
 
 
 class OfflineCompressProcessor(GenericObservationProcessor):
-    def __init__(self, processor_name, config):
-        super().__init__(processor_name, config)
+    def __init__(self, processor_name: str, config: ConfigParser, execute: bool):
+        super().__init__(processor_name, config, execute)
         self.last_uvcompress_obsid = 1095108744  # this is the last obsid which requires uvcompress
         self.last_uncompressed_obsid = 1178606168  # this (I think) is the last obsid which requires any compression
 
@@ -125,6 +125,7 @@ def main():
     # Get command line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, action='store')
+    parser.add_argument('--execute', action='store_true')
     args = parser.parse_args()
 
     cfg_file = None
@@ -144,7 +145,7 @@ def main():
     config.read(cfg_file)
 
     # Create class instance
-    processor = OfflineCompressProcessor("offline_compress_processor", config)
+    processor = OfflineCompressProcessor("offline_compress_processor", config, args.execute)
 
     # Initialise
     processor.start()

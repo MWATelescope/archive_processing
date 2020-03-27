@@ -7,8 +7,8 @@ import time
 
 
 class TestProcessor(GenericObservationProcessor):
-    def __init__(self, processor_name, config):
-        super().__init__(processor_name, config)
+    def __init__(self, processor_name: str, config: ConfigParser, execute: bool):
+        super().__init__(processor_name, config, execute)
 
     def get_observation_list(self) -> list:
         self.logger.info(f"Getting list of observations...")
@@ -66,6 +66,7 @@ def main():
     # Get command line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, action='store')
+    parser.add_argument('--execute', action='store_true')
     args = parser.parse_args()
 
     cfg_file = None
@@ -85,7 +86,7 @@ def main():
     config.read(cfg_file)
 
     # Create class instance
-    processor = TestProcessor("TestProcessor", config)
+    processor = TestProcessor("TestProcessor", config, args.execute)
 
     # Initialise
     processor.start()

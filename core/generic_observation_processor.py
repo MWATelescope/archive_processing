@@ -1,3 +1,4 @@
+from configparser import ConfigParser
 import core.mwa_archiving
 import core.processor_webservice
 import glob
@@ -12,9 +13,10 @@ import time
 
 
 class GenericObservationProcessor:
-    def __init__(self, processor_name, config):
+    def __init__(self, processor_name: str, config: ConfigParser, execute: bool):
         print(f"Initialising {processor_name}...")
         self.name = processor_name
+        self.execute = execute
         self.terminate = False
         self.terminated = False
 
@@ -78,30 +80,37 @@ class GenericObservationProcessor:
         # Get generic processor options
         self.implements_per_item_processing = config.getint("processing", "implements_per_item_processing")
         self.concurrent_processes = config.getint("processing", "concurrent_processes")
-        self.working_path = config.get("processing", "working_path")
 
-        self.logger.info(f"Checking and cleaning working path {self.working_path}...")
+        if config.has_option("processing", "working_path"):
+            self.working_path = config.get("processing", "working_path")
+        else:
+            self.working_path = None
 
         # Check working path
-        if not os.path.exists(self.working_path):
-            self.logger.error(f"Working path specified in configuration {self.working_path} is not valid.")
-            exit(-1)
+        self.check_root_working_directory_exists()
 
         # Clean working path
         self.cleanup_root_working_directory()
 
         # Queues
         self.logger.info("Initialising...")
+
+        if self.execute:
+            self.logger.warning("** EXECUTE is true. Will make changes to data! **")
+        else:
+            self.logger.info("DRY RUN. No data will be changed")
+
         self.observation_queue = queue.Queue()
         self.observation_item_queue = queue.Queue()
 
         self.observations_to_process = 0
         self.observations_processed_successfully = 0
         self.current_observations = []
-        self.current_items = []
+        self.current_observation_items = []
+        self.successful_observation_items = []
 
-        self.items_to_process = 0
-        self.items_processed_successfully = 0
+        self.num_items_to_process = 0
+        self.num_items_processed_successfully = 0
 
         # Threads
         self.consumer_threads = []
@@ -129,7 +138,15 @@ class GenericObservationProcessor:
                                                                  port=self.ngas_db_port,
                                                                  database=self.ngas_db_name)
 
-    def get_working_filename_and_path(self, obs_id, filename):
+    def check_root_working_directory_exists(self):
+        self.logger.info(f"Checking and cleaning working path {self.working_path}...")
+        if not os.path.exists(self.working_path):
+            self.logger.error(f"Working path specified in configuration {self.working_path} is not valid.")
+            exit(-1)
+        else:
+            return True
+
+    def get_working_filename_and_path(self, obs_id: int, filename: str):
         # will return working_path/obs_id/filename
         return os.path.join(self.working_path, str(obs_id), filename)
 
@@ -153,7 +170,7 @@ class GenericObservationProcessor:
             # Nothing to do
             pass
 
-    def prepare_observation_working_directory(self, obs_id):
+    def prepare_observation_working_directory(self, obs_id: int):
         obs_id_str = str(obs_id)
 
         path_to_create = os.path.join(self.working_path, obs_id_str)
@@ -166,7 +183,7 @@ class GenericObservationProcessor:
         os.mkdir(path_to_create, int(0o755))
         self.log_debug(obs_id, f"Created directory {path_to_create}...")
 
-    def cleanup_observation_working_directory(self, obs_id):
+    def cleanup_observation_working_directory(self, obs_id: int):
         obs_id_str = str(obs_id)
         path_to_clean = os.path.join(self.working_path, obs_id_str)
 
@@ -179,16 +196,19 @@ class GenericObservationProcessor:
             # Nothing to do
             pass
 
-    def log_info(self, obs_id, message):
+    def log_info(self, obs_id: int, message: str):
         self.logger.info(f"{obs_id}: {message}")
 
-    def log_debug(self, obs_id, message):
+    def log_warning(self, obs_id: int, message: str):
+        self.logger.warning(f"{obs_id}: {message}")
+
+    def log_debug(self, obs_id: int, message: str):
         self.logger.debug(f"{obs_id}: {message}")
 
-    def log_error(self, obs_id, message):
+    def log_error(self, obs_id: int, message: str):
         self.logger.error(f"{obs_id}: {message}")
 
-    def log_exception(self, obs_id, message):
+    def log_exception(self, obs_id: int, message: str):
         self.logger.exception(f"{obs_id}: {message}")
 
     #
@@ -198,32 +218,32 @@ class GenericObservationProcessor:
         # This is to be supplied by the inheritor. Using SQL or whatever to get a list of obs_ids
         raise NotImplementedError()
 
-    def process_one_observation(self, obs_id) -> bool:
+    def process_one_observation(self, obs_id: int) -> bool:
         # This is to be supplied by the inheritor.
         raise NotImplementedError()
 
-    def get_observation_staging_file_list(self, obs_id) -> list:
+    def get_observation_staging_file_list(self, obs_id: int) -> list:
         # This is to be supplied by the inheritor. Using SQL or whatever to get a list of files for the current obs_id
         # which are to be staged
         # If implements_per_item_processing == 0 then just 'pass'
         raise NotImplementedError()
 
-    def get_observation_item_list(self, obs_id, staging_file_list) -> list:
+    def get_observation_item_list(self, obs_id: int, staging_file_list: list) -> list:
         # This is to be supplied by the inheritor. We pass in the list of staged files for the current obs_id
         # If implements_per_item_processing == 0 then just 'pass'
         raise NotImplementedError()
 
-    def process_one_item(self, obs_id, item) -> bool:
+    def process_one_item(self, obs_id, item: str) -> bool:
         # This is to be supplied by the inheritor.
         # If implements_per_item_processing == 0 then just 'pass'
         raise NotImplementedError()
 
-    def end_of_observation(self, obs_id) -> bool:
+    def end_of_observation(self, obs_id: int) -> bool:
         # This is to be supplied by the inheritor.
         # If implements_per_item_processing == 0 then just 'pass'
         raise NotImplementedError()
 
-    def stage_files(self, obs_id, file_list, retry_attempts, backoff_seconds) -> bool:
+    def stage_files(self, obs_id: int, file_list: list, retry_attempts: int, backoff_seconds: int) -> bool:
         # This can be overridden by the inheritor, e.g. if you didn't want to stage anything, just return True
 
         # The passed in list of files should be Pawsey DMF paths.
@@ -284,7 +304,7 @@ class GenericObservationProcessor:
 
         if self.implements_per_item_processing:
             status = f"{status} Processing: {self.current_observations} > " \
-                     f"{[os.path.split(c)[1] if len(os.path.split(c)) == 2 else c for c in self.current_items]}\n"
+                     f"{[os.path.split(c)[1] if len(os.path.split(c)) == 2 else c for c in self.current_observation_items]}\n"
         else:
             status = f"{status} Processing: {self.current_observations}\n"
 
@@ -368,7 +388,7 @@ class GenericObservationProcessor:
 
                         self.log_info(obs_id, "Started")
 
-                        # Prepare a working area for this observatoin
+                        # Prepare a working area for this observation
                         self.prepare_observation_working_directory(obs_id)
 
                         observation_result = False
@@ -392,8 +412,9 @@ class GenericObservationProcessor:
                                 if not self.terminate:
                                     # now get the list of items to process (this may be different to the staging list!)
                                     observation_item_list = self.get_observation_item_list(obs_id, staging_file_list)
-                                    self.items_to_process = len(observation_item_list)
-                                    self.items_processed_successfully = 0
+                                    self.num_items_to_process = len(observation_item_list)
+                                    self.num_items_processed_successfully = 0
+                                    self.successful_observation_items = []
 
                                     # Enqueue items into the queue
                                     for filename in observation_item_list:
@@ -423,7 +444,7 @@ class GenericObservationProcessor:
 
                                     # Now finalise the observation, if need be
                                     # (and only if all were processed successfully)
-                                    if self.items_processed_successfully == self.items_to_process:
+                                    if self.num_items_processed_successfully == self.num_items_to_process:
                                         if self.end_of_observation(obs_id):
                                             self.observations_processed_successfully = self.observations_processed_successfully + 1
                             else:
@@ -529,7 +550,7 @@ class GenericObservationProcessor:
             self.logger.debug(f"Queue empty")
         return True
 
-    def observation_item_consumer(self, obs_id):
+    def observation_item_consumer(self, obs_id: int):
         try:
             self.log_debug(obs_id, f"Task Started")
 
@@ -538,11 +559,12 @@ class GenericObservationProcessor:
                 item = self.observation_item_queue.get_nowait()
 
                 # Update stats
-                self.current_items.append(item)
+                self.current_observation_items.append(item)
 
                 try:
                     if self.process_one_item(obs_id, item):
-                        self.items_processed_successfully += 1
+                        self.num_items_processed_successfully += 1
+                        self.successful_observation_items.append(item)
 
                 except Exception:
                     self.log_exception(obs_id, f"{item}: Exception in process_one_item()")
@@ -551,7 +573,7 @@ class GenericObservationProcessor:
                     self.observation_item_queue.task_done()
 
                     # Update stats
-                    self.current_items.remove(item)
+                    self.current_observation_items.remove(item)
 
         except queue.Empty:
             self.log_debug(obs_id, "Queue empty")
