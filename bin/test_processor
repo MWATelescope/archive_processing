@@ -1,0 +1,5 @@
+#!/usr/bin/env python
+
+from processor.processors import test_processor
+
+test_processor.run()

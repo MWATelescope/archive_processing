@@ -1,10 +1,11 @@
 import argparse
-from configparser import ConfigParser
-from core.generic_observation_processor import GenericObservationProcessor
-import core.mwa_metadata
 import os
 import base64
-import time
+from configparser import ConfigParser
+from processor.core.generic_observation_processor import GenericObservationProcessor
+from processor.utils.mwa_metadata import MWADataQualityFlags, get_obs_data_file_filenames, set_mwa_data_files_deleted_flag
+from processor.utils.ngas_metadata import get_ngas_file_path_and_address_for_filename_list
+from processor.utils.database import run_sql_get_many_rows
 
 
 class DeleteProcessor(GenericObservationProcessor):
@@ -14,10 +15,6 @@ class DeleteProcessor(GenericObservationProcessor):
         # Read delete processor specific config
         self.ngas_username = config.get("archive", "ngas_user")
         self.ngas_password = base64.b64decode(config.get("archive", "ngas_pass")).decode("UTF-8")
-
-    def stage_files(self, obs_id, file_list, retry_attempts, backoff_seconds) -> bool:
-        # We don't want to stage anything
-        return True
 
     def get_observation_list(self) -> list:
         self.logger.info(f"Getting list of observations...")
@@ -34,8 +31,8 @@ class DeleteProcessor(GenericObservationProcessor):
                   ORDER BY obs.starttime ASC limit 2"""
 
         # Execute query
-        params = (core.mwa_metadata.MWADataQualityFlags.MARKED_FOR_DELETE.value,)
-        results = core.mwa_metadata.run_sql_get_many_rows(self.mro_metadata_db_pool, sql, params)
+        params = (MWADataQualityFlags.MARKED_FOR_DELETE.value,)
+        results = run_sql_get_many_rows(self.mro_metadata_db_pool, sql, params)
 
         if results:
             observation_list = [r['obs_id'] for r in results]
@@ -51,18 +48,15 @@ class DeleteProcessor(GenericObservationProcessor):
         self.log_info(obs_id, f"Complete.")
         return True
 
-    def get_observation_staging_file_list(self, obs_id) -> list:
-        return []
-
-    def get_observation_item_list(self, obs_id, staging_file_list) -> list:
+    def get_observation_item_list(self, obs_id) -> list:
         self.log_info(obs_id, f"Getting list of files...")
 
         # Get MWA file list
         try:
-            mwa_file_list = core.mwa_metadata.get_obs_data_file_filenames(self.mro_metadata_db_pool,
-                                                                          obs_id,
-                                                                          deleted=False,
-                                                                          remote_archived=True)
+            mwa_file_list = get_obs_data_file_filenames(self.mro_metadata_db_pool,
+                                                        obs_id,
+                                                        deleted=False,
+                                                        remote_archived=True)
         except Exception:
             self.log_exception(obs_id, "Could not get data files for obs_id.")
             return []
@@ -73,8 +67,8 @@ class DeleteProcessor(GenericObservationProcessor):
 
         # Get NGAS file list, based on the mwa metadata list
         try:
-            ngas_file_list = core.mwa_metadata.get_ngas_file_path_and_address_for_filename_list(self.ngas_db_pool,
-                                                                                                mwa_file_list)
+            ngas_file_list = get_ngas_file_path_and_address_for_filename_list(self.ngas_db_pool,
+                                                                              mwa_file_list)
         except Exception:
             self.log_exception(obs_id, "Could not get ngas files for obs_id.")
             return []
@@ -133,9 +127,9 @@ class DeleteProcessor(GenericObservationProcessor):
 
             # Update metadata database to set deleted=True for all files deleted
             if self.execute:
-                core.mwa_metadata.set_mwa_data_files_deleted_flag(self.mro_metadata_db_pool,
-                                                                  metadata_filenames,
-                                                                  obs_id)
+                set_mwa_data_files_deleted_flag(self.mro_metadata_db_pool,
+                                                metadata_filenames,
+                                                obs_id)
             else:
                 self.log_info(obs_id, f"Would have updated {len(metadata_filenames)} "
                                       f"data_files rows, setting deleted flag "
@@ -146,31 +140,16 @@ class DeleteProcessor(GenericObservationProcessor):
                 pass
             else:
                 self.log_info(obs_id, f"Would have updated data quality of observation "
-                                      f"to {core.mwa_metadata.MWADataQualityFlags.DELETED.name} "
-                                      f"({core.mwa_metadata.MWADataQualityFlags.DELETED.value}).")
+                                      f"to {MWADataQualityFlags.DELETED.name} "
+                                      f"({MWADataQualityFlags.DELETED.value}).")
         else:
             self.log_warning(obs_id, f"Not all items for this observation processed successfully. "
                                      f"({self.num_items_to_process - self.num_items_processed_successfully} of "
                                      f"{self.num_items_to_process} failed)")
         return True
 
-    def check_root_working_directory_exists(self):
-        # Pass this check, we don't need to check the path since we don't use it
-        return True
 
-    def prepare_observation_working_directory(self, obs_id: int):
-        # we don't use a working directory
-        pass
-
-    def cleanup_observation_working_directory(self, obs_id: int):
-        # we don't use a working directory
-        pass
-
-    def cleanup_root_working_directory(self):
-        pass
-
-
-def main():
+def run():
     print("Starting DeleteProcessor...")
 
     # Get command line arguments
@@ -201,6 +180,3 @@ def main():
     # Initialise
     processor.start()
 
-
-if __name__ == "__main__":
-    main()

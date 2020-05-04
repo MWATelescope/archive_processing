@@ -5,7 +5,7 @@ setup(name='archive_processing',
       version='1.0.0',
       description='MWA Archive Processing Utilities',
       author='Greg Sleap',
-      author_email='operatuibs@mwatelescope.org',
+      author_email='operations@mwatelescope.org',
       url='http://www.mwatelescope.org',
-      packages=find_packages(),
-      entry_points={'console_scripts': ['test_processor = scripts.test_processor:main', 'offline_compression_processor = scripts.offline_compression_processor:main']})
+      packages=find_packages(),)
+

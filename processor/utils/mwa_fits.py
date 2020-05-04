@@ -1,7 +1,7 @@
 from astropy.io import fits
 
 
-def is_fits_compressed(path_in):
+def is_fits_compressed(path_in: str):
     with fits.open(path_in) as hdulist:
         for hdu in hdulist:
             if isinstance(hdu, fits.PrimaryHDU):
@@ -11,7 +11,7 @@ def is_fits_compressed(path_in):
     return True
 
 
-def fits_compress(path_in, path_out):
+def fits_compress(path_in: str, path_out: str):
     with fits.open(path_out, mode='append') as comphdulist:
         with fits.open(path_in, do_not_scale_image_data=True) as hdulist:
             for hdu in hdulist:

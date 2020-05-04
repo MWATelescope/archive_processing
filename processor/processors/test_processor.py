@@ -1,19 +1,41 @@
 import argparse
-from configparser import ConfigParser
-from core.generic_observation_processor import GenericObservationProcessor
 import os
 import random
 import time
+from configparser import ConfigParser
+from processor.core.generic_observation_processor import GenericObservationProcessor
+from processor.utils.mwa_metadata import MWAModeFlags, MWADataQualityFlags
+from processor.utils.ngas_metadata import get_ngas_all_file_paths
+from processor.utils.database import run_sql_get_many_rows
 
 
 class TestProcessor(GenericObservationProcessor):
     def __init__(self, processor_name: str, config: ConfigParser, execute: bool):
         super().__init__(processor_name, config, execute)
+        self.observation_item_list = []
 
     def get_observation_list(self) -> list:
         self.logger.info(f"Getting list of observations...")
-        observation_list = ["1234567890", "1234567891", "1234567892", "1234567893", "1234567894", ]
+        observation_list = []
+
+        # Run SQL
+        sql = f"""SELECT s.starttime As obs_id 
+                          FROM mwa_setting s
+                          WHERE
+                              mode = %s
+                          AND dataquality = %s
+                          AND starttime < %s 
+                          ORDER BY starttime DESC LIMIT 2"""
+
+        params = (MWAModeFlags.HW_LFILES.value, MWADataQualityFlags.GOOD.value, 1270000000)
+
+        results = run_sql_get_many_rows(self.mro_metadata_db_pool, sql, params)
+
+        if results:
+            observation_list = [r['obs_id'] for r in results]
+
         self.logger.info(f"{len(observation_list)} observations to process.")
+
         return observation_list
 
     def long_running_task(self):
@@ -27,27 +49,31 @@ class TestProcessor(GenericObservationProcessor):
     def process_one_observation(self, obs_id) -> bool:
         self.log_info(obs_id, f"Starting... ({self.observation_queue.qsize()} remaining in queue)")
 
-        self.long_running_task()
-
-        self.log_info(obs_id, f"Complete.")
-        return True
-
-    def get_observation_staging_file_list(self, obs_id) -> list:
         self.log_info(obs_id, f"Getting list of files to stage...")
-        file_list = ["testfile1", "testfile2", "testfile3", "testfile4", "testfile5", "testfile6", "testfile7", ]
-        self.log_info(obs_id, f"{len(file_list)} files to stage.")
-        return file_list
 
-    def get_observation_item_list(self, obs_id) -> list:
-        self.log_info(obs_id, f"Getting list of files...")
-        file_list = ["testfile1", "testfile2", "testfile3", "testfile4", "testfile5", "testfile6", "testfile7", ]
-        self.log_info(obs_id, f"{len(file_list)} files to process.")
-        return file_list
+        staging_file_list = get_ngas_all_file_paths(self.ngas_db_pool, obs_id)
+
+        self.log_info(obs_id, f"{len(staging_file_list)} files to stage.")
+
+        if self.stage_files(obs_id, staging_file_list):
+            self.log_info(obs_id, f"Staging complete.")
+
+            # We need to store the items for later, when get_observation_item_list() is called
+            self.observation_item_list = staging_file_list
+            return True
+        else:
+            self.log_info(obs_id, f"Cannot stage files. Skipping this observation.")
+            return False
+
+    def get_observation_item_list(self, obs_id: int) -> list:
+        self.log_info(obs_id, f"Getting list of items...")
+        self.log_info(obs_id, f"{len(self.observation_item_list)} items to process.")
+        return self.observation_item_list
 
     def process_one_item(self, obs_id, item) -> bool:
         self.log_info(obs_id, f"{item}: Starting... ({self.observation_item_queue.qsize()} remaining in queue)")
 
-        time.sleep(random.randint(2, 7))
+        self.long_running_task()
 
         self.log_info(obs_id, f"{item}: Complete.")
         return True
@@ -60,7 +86,7 @@ class TestProcessor(GenericObservationProcessor):
         return True
 
 
-def main():
+def run():
     print("Starting TestProcessor...")
 
     # Get command line arguments
@@ -90,7 +116,3 @@ def main():
 
     # Initialise
     processor.start()
-
-
-if __name__ == "__main__":
-    main()

@@ -1,10 +1,11 @@
 import argparse
-from configparser import ConfigParser
-import core.mwa_fits
-from core.mwa_metadata import MWAFileTypeFlags, MWADataQualityFlags, MWAModeFlags
-from core.generic_observation_processor import GenericObservationProcessor
 import os
-import time
+from configparser import ConfigParser
+from processor.core.generic_observation_processor import GenericObservationProcessor
+from processor.utils.mwa_fits import is_fits_compressed, fits_compress
+from processor.utils.mwa_metadata import MWAFileTypeFlags, MWADataQualityFlags, MWAModeFlags, get_obs_gpubox_filenames
+from processor.utils.ngas_metadata import get_ngas_file_path_and_address_for_filename_list
+from processor.utils.database import run_sql_get_many_rows
 
 
 class OfflineCompressProcessor(GenericObservationProcessor):
@@ -40,12 +41,10 @@ class OfflineCompressProcessor(GenericObservationProcessor):
                   MWADataQualityFlags.GOOD.value,
                   MWADataQualityFlags.SOME_ISSUES.value,
                   MWAFileTypeFlags.GPUBOX_FILE.value, )
-        results = core.mwa_metadata.run_sql_get_many_rows(self.mro_metadata_db_pool, sql, params)
+        results = run_sql_get_many_rows(self.mro_metadata_db_pool, sql, params)
 
         if results:
             observation_list = [r['obs_id'] for r in results]
-        else:
-            return observation_list
 
         self.logger.info(f"{len(observation_list)} observations to process.")
         return observation_list
@@ -59,7 +58,7 @@ class OfflineCompressProcessor(GenericObservationProcessor):
 
         # Get MWA file list
         try:
-            mwa_file_list = core.mwa_metadata.get_obs_gpubox_filenames(self.mro_metadata_db_pool, obs_id)
+            mwa_file_list = get_obs_gpubox_filenames(self.mro_metadata_db_pool, obs_id)
         except Exception:
             self.log_exception(obs_id, "Could not get gpubox files for obs_id.")
             return []
@@ -70,8 +69,8 @@ class OfflineCompressProcessor(GenericObservationProcessor):
 
         # Get NGAS file list, based on the mwa metadata list
         try:
-            ngas_file_list = core.mwa_metadata.get_ngas_file_path_and_address_for_filename_list(self.ngas_db_pool,
-                                                                                                mwa_file_list)
+            ngas_file_list = get_ngas_file_path_and_address_for_filename_list(self.ngas_db_pool,
+                                                                              mwa_file_list)
         except Exception:
             self.log_exception(obs_id, "Could not get ngas files for obs_id.")
             return []
@@ -87,9 +86,9 @@ class OfflineCompressProcessor(GenericObservationProcessor):
 
         return ngas_file_list
 
-    def get_observation_item_list(self, obs_id, staging_file_list) -> list:
+    def get_observation_item_list(self, obs_id: int) -> list:
         # Just return what we staged
-        return staging_file_list
+        return self.get_observation_staging_file_list(obs_id)
 
     def process_one_item(self, obs_id, item) -> bool:
         # item is a full file path. Split it so we get the filename only
@@ -101,8 +100,8 @@ class OfflineCompressProcessor(GenericObservationProcessor):
         output_filename = self.get_working_filename_and_path(obs_id, filename)
 
         # Compress
-        if not core.mwa_fits.is_fits_compressed(item):
-            core.mwa_fits.fits_compress(item, output_filename)
+        if not is_fits_compressed(item):
+            fits_compress(item, output_filename)
 
         # Archive
 
@@ -119,7 +118,7 @@ class OfflineCompressProcessor(GenericObservationProcessor):
         return True
 
 
-def main():
+def run():
     print("Starting offline compression processor...")
 
     # Get command line arguments
@@ -149,7 +148,3 @@ def main():
 
     # Initialise
     processor.start()
-
-
-if __name__ == "__main__":
-    main()
