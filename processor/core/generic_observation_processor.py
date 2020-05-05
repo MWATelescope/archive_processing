@@ -92,7 +92,7 @@ class GenericObservationProcessor:
         else:
             self.working_path = None
 
-        # Queues
+        # Initialise stuff
         self.logger.info("Initialising...")
 
         if self.execute:
@@ -100,11 +100,14 @@ class GenericObservationProcessor:
         else:
             self.logger.info("DRY RUN. No data will be changed")
 
+        # Queues
         self.observation_queue = queue.Queue()
         self.observation_item_queue = queue.Queue()
 
+        # Tracking info
         self.observations_to_process = 0
         self.observations_processed_successfully = 0
+
         self.current_observations = []
         self.current_observation_items = []
         self.successful_observation_items = []
@@ -115,7 +118,7 @@ class GenericObservationProcessor:
         # Threads
         self.consumer_threads = []
 
-        # Start a new thread for a web service
+        # Web service
         self.web_server = None
         self.web_server_thread = None
 
@@ -185,14 +188,14 @@ class GenericObservationProcessor:
             time.sleep(backoff_seconds)
             attempts += 1
 
-        # If we get here, we give up, or we are terminating
+        # If we get here, we give up
         if not self.terminate:
             t2 = time.time()
             self.log_error(obs_id, f"Staging failed too many times. Gave up after trying {retry_attempts} "
                                    f"times and {t2 - t1:.2f} seconds.")
         return False
 
-    def check_root_working_directory_exists(self):
+    def check_root_working_directory_exists(self) -> bool:
         if self.working_path:
             self.logger.info(f"Checking and cleaning working path {self.working_path}...")
             if not os.path.exists(self.working_path):
@@ -204,7 +207,7 @@ class GenericObservationProcessor:
             raise Exception("check_root_working_directory_exists(): working_path is not defined in the config "
                             "file.")
 
-    def get_working_filename_and_path(self, obs_id: int, filename: str):
+    def get_working_filename_and_path(self, obs_id: int, filename: str) -> str:
         # will return working_path/obs_id/filename
         if self.working_path:
             return os.path.join(self.working_path, str(obs_id), filename)
@@ -473,6 +476,9 @@ class GenericObservationProcessor:
                 except queue.Empty:
                     self.logger.debug(f"Queue empty")
 
+                    # Release lock
+                    self.observation_queue_lock.release()
+
             else:
                 self.logger.info(f"{self.concurrent_processes} concurrent observations will be processed.")
 
@@ -502,7 +508,7 @@ class GenericObservationProcessor:
         #    if thread.name != "MainThread":
         #        self.logger.debug(f"Thread: {thread.name} is still running, but it shouldn't be.")
 
-    def observation_consumer(self):
+    def observation_consumer(self) -> bool:
         try:
             while self.terminate is False:
                 # Get next item, but only if the queue is not locked
@@ -546,9 +552,12 @@ class GenericObservationProcessor:
         except queue.Empty:
             self.logger.debug(f"Queue empty")
 
+            # Release lock
+            self.observation_queue_lock.release()
+
         return True
 
-    def observation_item_consumer(self, obs_id: int):
+    def observation_item_consumer(self, obs_id: int) -> bool:
         try:
             self.log_debug(obs_id, f"Task Started")
 
@@ -595,6 +604,10 @@ class GenericObservationProcessor:
         self.terminate = True
 
         if not self.terminated:
+            if self.logger:
+                self.logger.info("Stopping processor...")
+            else:
+                print("Stopping processor...")
 
             # Wait until current tasks are done- then clear the queue so we get past queue.join
             if len(self.consumer_threads) > 0:
@@ -634,8 +647,8 @@ class GenericObservationProcessor:
 
     def signal_handler(self, sig, frame):
         if self.logger:
-            self.logger.info("Interrupted! Closing down...")
+            self.logger.info("Interrupted!")
         else:
-            print("Interrupted! Closing down...")
+            print("Interrupted!")
 
         self.stop()

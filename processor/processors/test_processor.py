@@ -38,15 +38,23 @@ class TestProcessor(GenericObservationProcessor):
 
         return observation_list
 
-    def long_running_task(self):
+    def long_running_task(self, obs_id: int, item: str = None):
         a, b = 0, 1
 
-        for i in range(random.randint(500000, 1000000)):
-            nth = a + b
-            a = b
-            b = nth
+        if item:
+            self.log_info(obs_id, f"{item}: Running long running task ({self.observation_item_queue.qsize()} "
+                                  f"remaining in queue)")
+        else:
+            self.log_info(obs_id, "Running long running task")
 
-    def process_one_observation(self, obs_id) -> bool:
+        time.sleep(random.randint(1, 4))
+
+        if item:
+            self.log_info(obs_id, f"{item}: Long running task complete.")
+        else:
+            self.log_info(obs_id, "Long running task complete.")
+
+    def process_one_observation(self, obs_id: int) -> bool:
         self.log_info(obs_id, f"Starting... ({self.observation_queue.qsize()} remaining in queue)")
 
         self.log_info(obs_id, f"Getting list of files to stage...")
@@ -60,7 +68,13 @@ class TestProcessor(GenericObservationProcessor):
 
             # We need to store the items for later, when get_observation_item_list() is called
             self.observation_item_list = staging_file_list
-            return True
+
+            if self.implements_per_item_processing == 0:
+                # Run a long running task
+                self.long_running_task(obs_id)
+                return True
+            else:
+                return True
         else:
             self.log_info(obs_id, f"Cannot stage files. Skipping this observation.")
             return False
@@ -70,15 +84,11 @@ class TestProcessor(GenericObservationProcessor):
         self.log_info(obs_id, f"{len(self.observation_item_list)} items to process.")
         return self.observation_item_list
 
-    def process_one_item(self, obs_id, item) -> bool:
-        self.log_info(obs_id, f"{item}: Starting... ({self.observation_item_queue.qsize()} remaining in queue)")
-
-        self.long_running_task()
-
-        self.log_info(obs_id, f"{item}: Complete.")
+    def process_one_item(self, obs_id: int, item: str) -> bool:
+        self.long_running_task(obs_id, item)
         return True
 
-    def end_of_observation(self, obs_id) -> bool:
+    def end_of_observation(self, obs_id: int) -> bool:
         # This file was successfully processed
         self.log_info(obs_id, f"Finalising observation starting...")
         time.sleep(random.randint(1, 3))

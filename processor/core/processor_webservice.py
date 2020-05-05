@@ -1,4 +1,6 @@
 import json
+import os
+import signal
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -34,7 +36,12 @@ class ProcessorHTTPGetHandler(BaseHTTPRequestHandler):
                 self.server.context.refresh_obs_list()
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(b"OK")
+                self.wfile.write(b"OK, refreshing")
+            elif parsed_path == "/stop":
+                os.kill(os.getpid(), signal.SIGINT)
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"OK, stopping")
             else:
                 self.send_response(400)
                 self.end_headers()
