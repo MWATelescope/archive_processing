@@ -36,9 +36,7 @@ def update_mwa_setting_dataquality(database_pool, obsid: int, dataquality: MWADa
     try:
         con = database_pool.getconn()
         cursor = con.cursor()
-        cursor.execute(("UPDATE mwa_setting SET dataquality = %s "
-                        "WHERE "
-                        " starttime = %s"), (str(dataquality.value), obsid))
+        cursor.execute(("UPDATE mwa_setting SET dataquality = %s WHERE starttime = %s"), (str(dataquality.value), obsid))
 
     except Exception as e:
         if con:
@@ -73,10 +71,7 @@ def set_mwa_data_files_deleted_flag(database_pool, filenames: list, obsid: int):
     try:
         con = database_pool.getconn()
         cursor = con.cursor()
-        cursor.execute(("UPDATE data_files "
-                        "SET deleted = True "
-                        "WHERE filename = any(%s) AND "
-                        "observation_num = %s"), (filenames, obsid))
+        cursor.execute(("UPDATE data_files SET deleted = True WHERE filename = any(%s) AND observation_num = %s"), (filenames, obsid))
 
     except Exception as e:
         if con:

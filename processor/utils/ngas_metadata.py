@@ -101,7 +101,7 @@ def get_latest_ngas_file_path_and_address_for_filename_list(database_pool, file_
 # It will return files in order of filename and then version ascending. e.g. A, v1 the A v2, then B v1....
 def get_all_ngas_file_path_and_address_for_filename_list(database_pool, file_id_list: list) -> list:
     sql = """SELECT  mount_point || '/' || file_name as path, 
-                     ngas_hosts.ip_address as address 
+                     ngas_hosts.ip_address as address
               FROM ngas_files inner join ngas_disks 
                    on ngas_disks.disk_id = ngas_files.disk_id 
               inner join ngas_hosts on ngas_disks.host_id = ngas_hosts.host_id 
@@ -124,23 +124,24 @@ def get_all_ngas_file_path_and_address_for_filename_list(database_pool, file_id_
 
 #
 # Fully deletes the files from NGAS database
+# NOTE: this assumes you want ALL versions of a file deleted!
 #
-def delete_ngas_files(database_pool, filenames: list):
+def delete_ngas_files(database_pool, file_id_list: list):
     cursor = None
     con = None
-    expected_deleted = len(filenames)
+    expected_deleted = len(file_id_list)
 
     try:
         con = database_pool.getconn()
         cursor = con.cursor()
         cursor.execute(("""DELETE FROM ngas_files                         
-                           WHERE filename = any(%s) 
+                           WHERE file_id = any(%s) 
                            AND disk_id in (
                            '35ecaa0a7c65795635087af61c3ce903', 
                            '54ab8af6c805f956c804ee1e4de92ca4', 
                            '921d259d7bc2a0ae7d9a532bccd049c7', 
                            'e3d87c5bc9fa1f17a84491d03b732afd',
-                           '848575aeeb7a8a6b5579069f2b72282c');"""), (filenames,))
+                           '848575aeeb7a8a6b5579069f2b72282c');"""), (file_id_list,))
 
     except Exception as e:
         if con:

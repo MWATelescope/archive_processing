@@ -129,7 +129,7 @@ class DeleteProcessor(GenericObservationProcessor):
 
                     # Go and create a new batch
                     for batch_index in range(batch_size):
-                        batch_ngas_file_list.append(self.ngas_file_list[file_index])
+                        batch_ngas_file_list.append(os.path.basename(self.ngas_file_list[file_index]))
                         file_index += 1
 
                     try:
@@ -143,7 +143,7 @@ class DeleteProcessor(GenericObservationProcessor):
 
                         file_to_delete_count -= batch_size
                     except:
-                        self.log_exception(obs_id, f"Error updating data_files to be deleted")
+                        self.log_exception(obs_id, f"Error deleting ngas_files")
                         return False
             except:
                 self.log_exception(obs_id, f"Error deleting files from ngas database")
@@ -186,7 +186,7 @@ class DeleteProcessor(GenericObservationProcessor):
 
                         file_to_update_count -= batch_size
                     except:
-                        self.log_exception(obs_id, f"Error updating data_files to be deleted")
+                        self.log_exception(obs_id, f"Error updating data_files to be set to deleted")
                         return False
             except:
                 self.log_exception(obs_id, f"Error deleting files from ngas database")
@@ -195,7 +195,8 @@ class DeleteProcessor(GenericObservationProcessor):
             # Update metadata database to set data quality to DELETED
             try:
                 if self.execute:
-                    update_mwa_setting_dataquality(self.mro_metadata_db_pool, obs_id, MWADataQualityFlags.DELETED.value)
+                    update_mwa_setting_dataquality(self.mro_metadata_db_pool, obs_id, MWADataQualityFlags.DELETED)
+
                     self.log_info(obs_id, f"Data quality of observation updated "
                                           f"to {MWADataQualityFlags.DELETED.name} "
                                           f"({MWADataQualityFlags.DELETED.value})")
