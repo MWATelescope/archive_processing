@@ -120,3 +120,45 @@ def get_all_ngas_file_path_and_address_for_filename_list(database_pool, file_id_
         return [r['path'] for r in results]
     else:
         return []
+
+
+#
+# Fully deletes the files from NGAS database
+#
+def delete_ngas_files(database_pool, filenames: list):
+    cursor = None
+    con = None
+    expected_deleted = len(filenames)
+
+    try:
+        con = database_pool.getconn()
+        cursor = con.cursor()
+        cursor.execute(("""DELETE FROM ngas_files                         
+                           WHERE filename = any(%s) 
+                           AND disk_id in (
+                           '35ecaa0a7c65795635087af61c3ce903', 
+                           '54ab8af6c805f956c804ee1e4de92ca4', 
+                           '921d259d7bc2a0ae7d9a532bccd049c7', 
+                           'e3d87c5bc9fa1f17a84491d03b732afd',
+                           '848575aeeb7a8a6b5579069f2b72282c');"""), (filenames,))
+
+    except Exception as e:
+        if con:
+            con.rollback()
+            raise e
+    else:
+        rows_affected = cursor.rowcount
+
+        if rows_affected == expected_deleted:
+            if con:
+                con.commit()
+        else:
+            if con:
+                con.rollback()
+            raise Exception(f"Delete from ngas_files affected: {rows_affected} rows- "
+                            f"not {expected_deleted} as expected. Rolling back")
+    finally:
+        if cursor:
+            cursor.close()
+        if con:
+            database_pool.putconn(conn=con)

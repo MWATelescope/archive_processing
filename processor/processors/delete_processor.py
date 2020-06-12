@@ -3,8 +3,8 @@ import os
 import base64
 from configparser import ConfigParser
 from processor.core.generic_observation_processor import GenericObservationProcessor
-from processor.utils.mwa_metadata import MWADataQualityFlags, get_obs_data_files_filenames_except_ppds, set_mwa_data_files_deleted_flag
-from processor.utils.ngas_metadata import get_all_ngas_file_path_and_address_for_filename_list
+from processor.utils.mwa_metadata import MWADataQualityFlags, get_obs_data_files_filenames_except_ppds, set_mwa_data_files_deleted_flag, update_mwa_setting_dataquality
+from processor.utils.ngas_metadata import get_all_ngas_file_path_and_address_for_filename_list, delete_ngas_files
 from processor.utils.database import run_sql_get_many_rows
 
 
@@ -31,7 +31,7 @@ class DeleteProcessor(GenericObservationProcessor):
                    obs.dataquality = %s 
                    AND obs.mode IN ('HW_LFILES', 'VOLTAGE_START', 'VOLTAGE_BUFFER')    
                    AND obs.dataqualitycomment IS NOT NULL
-                    AND obs.starttime IN (1076867192, 1272805816)
+                    AND obs.starttime IN (1076867192) --1272805816
                   ORDER BY obs.starttime ASC limit 2"""
 
         # Execute query
@@ -48,8 +48,6 @@ class DeleteProcessor(GenericObservationProcessor):
 
     def process_one_observation(self, obs_id) -> bool:
         self.log_info(obs_id, f"Starting... ({self.observation_queue.qsize()} remaining in queue)")
-
-        self.log_info(obs_id, f"Complete.")
         return True
 
     def get_observation_item_list(self, obs_id) -> list:
@@ -114,33 +112,93 @@ class DeleteProcessor(GenericObservationProcessor):
 
             # Delete removed files from NGAS database db
             try:
-                if self.execute:
-                    pass
-                else:
-                    self.log_info(obs_id, f"Would have deleted {len(self.successful_observation_items)} "
-                                          f"rows from ngas_files table.")
+                # Postgres limits us to 32K and it would make sense to do smaller batches here anyway
+                # Especially for VCS observations with >100K files to delete
+                file_to_delete_count = len(self.ngas_file_list)
+                file_index = 0
+                batch_size = 250
+
+                # Keep processing batches until we have nothing left to process
+                while file_to_delete_count > 0:
+                    batch_ngas_file_list = []
+
+                    # The last batch is unlikely to fit evenly into the batch size, so
+                    # this caters for that last iteration were items to process is < batch size
+                    if file_to_delete_count < batch_size:
+                        batch_size = file_to_delete_count
+
+                    # Go and create a new batch
+                    for batch_index in range(batch_size):
+                        batch_ngas_file_list.append(self.ngas_file_list[file_index])
+                        file_index += 1
+
+                    try:
+                        if self.execute:
+                            delete_ngas_files(self.ngas_db_pool, batch_ngas_file_list)
+                            self.log_info(obs_id, f"Deleted {len(batch_ngas_file_list)} "
+                                                  f"rows from ngas_files table.")
+                        else:
+                            self.log_info(obs_id, f"Would have deleted {len(batch_ngas_file_list)} "
+                                                  f"rows from ngas_files table. {batch_ngas_file_list}")
+
+                        file_to_delete_count -= batch_size
+                    except:
+                        self.log_exception(obs_id, f"Error updating data_files to be deleted")
+                        return False
             except:
-                self.log_exception(obs_id, f"Error deleting rm'd files from ngas database")
+                self.log_exception(obs_id, f"Error deleting files from ngas database")
                 return False
 
             # Update metadata database to set deleted=True for all files deleted
             try:
-                if self.execute:
-                    set_mwa_data_files_deleted_flag(self.mro_metadata_db_pool,
-                                                    self.mwa_file_list,
-                                                    obs_id)
-                else:
-                    self.log_info(obs_id, f"Would have updated {len(self.mwa_file_list)} "
-                                          f"data_files rows, setting deleted flag "
-                                          f"to True.")
+                # Postgres limits us to 32K and it would make sense to do smaller batches here anyway
+                # Especially for VCS observations with >100K files to update
+                file_to_update_count = len(self.mwa_file_list)
+                file_index = 0
+                batch_size = 250
+
+                # Keep processing batches until we have nothing left to process
+                while file_to_update_count > 0:
+                    batch_mwa_file_list = []
+
+                    # The last batch is unlikely to fit evenly into the batch size, so
+                    # this caters for that last iteration were items to process is < batch size
+                    if file_to_update_count < batch_size:
+                        batch_size = file_to_update_count
+
+                    # Go and create a new batch
+                    for batch_index in range(batch_size):
+                        batch_mwa_file_list.append(self.mwa_file_list[file_index])
+                        file_index += 1
+
+                    try:
+                        if self.execute:
+                            set_mwa_data_files_deleted_flag(self.mro_metadata_db_pool,
+                                                            batch_mwa_file_list,
+                                                            obs_id)
+                            self.log_info(obs_id, f"Updated {len(batch_mwa_file_list)} "
+                                                  f"rows in data_files table, setting deleted flag "
+                                                  f"to True.")
+                        else:
+                            self.log_info(obs_id, f"Would have updated {len(batch_mwa_file_list)} "
+                                                  f"data_files rows, setting deleted flag "
+                                                  f"to True. {batch_mwa_file_list}")
+
+                        file_to_update_count -= batch_size
+                    except:
+                        self.log_exception(obs_id, f"Error updating data_files to be deleted")
+                        return False
             except:
-                self.log_exception(obs_id, f"Error updating data_files to be deleted")
+                self.log_exception(obs_id, f"Error deleting files from ngas database")
                 return False
 
             # Update metadata database to set data quality to DELETED
             try:
                 if self.execute:
-                    pass
+                    update_mwa_setting_dataquality(self.mro_metadata_db_pool, obs_id, MWADataQualityFlags.DELETED.value)
+                    self.log_info(obs_id, f"Data quality of observation updated "
+                                          f"to {MWADataQualityFlags.DELETED.name} "
+                                          f"({MWADataQualityFlags.DELETED.value})")
                 else:
                     self.log_info(obs_id, f"Would have updated data quality of observation "
                                           f"to {MWADataQualityFlags.DELETED.name} "
@@ -149,7 +207,8 @@ class DeleteProcessor(GenericObservationProcessor):
                 self.log_exception(obs_id, f"Error updating data quality of observation")
                 return False
         else:
-            self.log_warning(obs_id, f"Not all items for this observation processed successfully. Skipping further operations."
+            self.log_warning(obs_id, f"Not all items for this observation processed successfully. "
+                                     f"Skipping further operations."
                                      f"({self.num_items_to_process - self.num_items_processed_successfully} of "
                                      f"{self.num_items_to_process} failed)")
             return False
