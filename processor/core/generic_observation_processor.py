@@ -107,6 +107,7 @@ class GenericObservationProcessor:
         # Tracking info
         self.observations_to_process = 0
         self.observations_processed_successfully = 0
+        self.observations_failed_with_errors = 0
 
         self.current_observations = []
         self.current_observation_items = []
@@ -456,11 +457,11 @@ class GenericObservationProcessor:
                             self.consumer_threads = []
 
                             # Now finalise the observation, if need be
-                            # (and only if all were processed successfully)
-                            if self.num_items_processed_successfully == self.num_items_to_process:
-                                if self.end_of_observation(obs_id):
-                                    self.observations_processed_successfully = \
-                                        self.observations_processed_successfully + 1
+                            if self.end_of_observation(obs_id):
+                                self.observations_processed_successfully = \
+                                    self.observations_processed_successfully + 1
+                            else:
+                                self.observations_failed_with_errors = self.observations_failed_with_errors + 1
 
                         # Tell queue that job is done
                         self.observation_queue.task_done()
@@ -504,9 +505,9 @@ class GenericObservationProcessor:
         self.logger.debug("main() stopped. ")
 
         # Uncomment this if there are loose threads!
-        # for thread in threading.enumerate():
-        #    if thread.name != "MainThread":
-        #        self.logger.debug(f"Thread: {thread.name} is still running, but it shouldn't be.")
+        for thread in threading.enumerate():
+           if thread.name != "MainThread":
+               self.logger.debug(f"Thread: {thread.name} is still running, but it shouldn't be.")
 
     def observation_consumer(self) -> bool:
         try:
@@ -533,6 +534,8 @@ class GenericObservationProcessor:
                 try:
                     if self.process_one_observation(obs_id):
                         self.observations_processed_successfully = self.observations_processed_successfully + 1
+                    else:
+                        self.observations_failed_with_errors = self.observations_failed_with_errors + 1
 
                 except Exception:
                     self.log_exception(obs_id, "Exception in process_one_observation()")
@@ -644,6 +647,10 @@ class GenericObservationProcessor:
             self.logger.debug("Webserver stopped. ")
 
             self.terminated = True
+            self.logger.info(f"Total Observations to process      : {self.observations_to_process}")
+            self.logger.info(f"Observations attempted             : {self.observations_processed_successfully + self.observations_failed_with_errors}")
+            self.logger.info(f"Observations processed successfully: {self.observations_processed_successfully}")
+            self.logger.info(f"Observations failed with errors    : {self.observations_failed_with_errors}")
 
     def signal_handler(self, sig, frame):
         if self.logger:

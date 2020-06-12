@@ -3,8 +3,8 @@ import os
 import base64
 from configparser import ConfigParser
 from processor.core.generic_observation_processor import GenericObservationProcessor
-from processor.utils.mwa_metadata import MWADataQualityFlags, get_obs_data_file_filenames, set_mwa_data_files_deleted_flag
-from processor.utils.ngas_metadata import get_ngas_file_path_and_address_for_filename_list
+from processor.utils.mwa_metadata import MWADataQualityFlags, get_obs_data_files_filenames_except_ppds, set_mwa_data_files_deleted_flag
+from processor.utils.ngas_metadata import get_all_ngas_file_path_and_address_for_filename_list
 from processor.utils.database import run_sql_get_many_rows
 
 
@@ -15,6 +15,10 @@ class DeleteProcessor(GenericObservationProcessor):
         # Read delete processor specific config
         self.ngas_username = config.get("archive", "ngas_user")
         self.ngas_password = base64.b64decode(config.get("archive", "ngas_pass")).decode("UTF-8")
+
+        # Lists to keep track of files
+        self.mwa_file_list = []
+        self.ngas_file_list = []
 
     def get_observation_list(self) -> list:
         self.logger.info(f"Getting list of observations...")
@@ -27,7 +31,7 @@ class DeleteProcessor(GenericObservationProcessor):
                    obs.dataquality = %s 
                    AND obs.mode IN ('HW_LFILES', 'VOLTAGE_START', 'VOLTAGE_BUFFER')    
                    AND obs.dataqualitycomment IS NOT NULL
-                    AND obs.starttime >= 1076867192
+                    AND obs.starttime IN (1076867192, 1272805816)
                   ORDER BY obs.starttime ASC limit 2"""
 
         # Execute query
@@ -53,41 +57,44 @@ class DeleteProcessor(GenericObservationProcessor):
 
         # Get MWA file list
         try:
-            mwa_file_list = get_obs_data_file_filenames(self.mro_metadata_db_pool,
-                                                        obs_id,
-                                                        deleted=False,
-                                                        remote_archived=True)
+            self.mwa_file_list = get_obs_data_files_filenames_except_ppds(self.mro_metadata_db_pool,
+                                                                          obs_id,
+                                                                          deleted=False,
+                                                                          remote_archived=True)
         except Exception:
-            self.log_exception(obs_id, "Could not get data files for obs_id.")
+            self.log_exception(obs_id, "Could not get mwa data files for obs_id.")
             return []
 
-        if len(mwa_file_list) == 0:
-            self.log_error(obs_id, f"No data files found in mwa database")
+        if len(self.mwa_file_list) == 0:
+            self.log_info(obs_id, f"No data files found in mwa database")
             return []
 
         # Get NGAS file list, based on the mwa metadata list
         try:
-            ngas_file_list = get_ngas_file_path_and_address_for_filename_list(self.ngas_db_pool,
-                                                                              mwa_file_list)
+            self.ngas_file_list = get_all_ngas_file_path_and_address_for_filename_list(self.ngas_db_pool,
+                                                                                       self.mwa_file_list)
         except Exception:
             self.log_exception(obs_id, "Could not get ngas files for obs_id.")
             return []
 
-        if len(ngas_file_list) == 0:
-            self.log_error(obs_id, f"No data files found in ngas database")
+        if len(self.ngas_file_list) == 0:
+            self.log_info(obs_id, f"No data files found in ngas database for this obs_id.")
             return []
 
-        if len(mwa_file_list) != len(ngas_file_list):
-            self.log_error(obs_id, f"MWA file count {len(mwa_file_list)} does not match "
-                                   f"ngas file count {len(ngas_file_list)}")
-            return []
-
-        return ngas_file_list
+        return self.ngas_file_list
 
     def process_one_item(self, obs_id, item) -> bool:
+        # items in this case are the NGAS files
+
         if self.execute:
-            # rm the file
-            pass
+            # rm the file- if it's already gone, we are ok with that.
+            try:
+                os.remove(item)
+                self.log_info(obs_id, f"{item}: deleted from filesystem. "
+                                      f"({self.observation_item_queue.qsize()} remaining in queue)")
+            except FileNotFoundError:
+                self.log_info(obs_id, f"{item}: does not exist, continuing. "
+                                      f"({self.observation_item_queue.qsize()} remaining in queue)")
         else:
             self.log_info(obs_id, f"{item}: Would have rm from filesystem. "
                                   f"({self.observation_item_queue.qsize()} remaining in queue)")
@@ -105,47 +112,48 @@ class DeleteProcessor(GenericObservationProcessor):
                                        f"list ({len(self.successful_observation_items)})")
                 return False
 
-            metadata_filenames = []
-
-            for f in self.successful_observation_items:
-                # f will be a filly qualified path
-                # split it to just get the filename
-                filename = os.path.split(f)[1]
-
-                # NGAS may have multiple versions of a file, but
-                # for this we only want the unique filenames which we will match
-                # in the mwa metadata database
-                if filename not in metadata_filenames:
-                    metadata_filenames.append(filename)
-
-            # Delete removed files from NGAS database
-            if self.execute:
-                pass
-            else:
-                self.log_info(obs_id, f"Would have deleted {len(self.successful_observation_items)} "
-                                      f"rows from ngas_files table.")
+            # Delete removed files from NGAS database db
+            try:
+                if self.execute:
+                    pass
+                else:
+                    self.log_info(obs_id, f"Would have deleted {len(self.successful_observation_items)} "
+                                          f"rows from ngas_files table.")
+            except:
+                self.log_exception(obs_id, f"Error deleting rm'd files from ngas database")
+                return False
 
             # Update metadata database to set deleted=True for all files deleted
-            if self.execute:
-                set_mwa_data_files_deleted_flag(self.mro_metadata_db_pool,
-                                                metadata_filenames,
-                                                obs_id)
-            else:
-                self.log_info(obs_id, f"Would have updated {len(metadata_filenames)} "
-                                      f"data_files rows, setting deleted flag "
-                                      f"to True.")
+            try:
+                if self.execute:
+                    set_mwa_data_files_deleted_flag(self.mro_metadata_db_pool,
+                                                    self.mwa_file_list,
+                                                    obs_id)
+                else:
+                    self.log_info(obs_id, f"Would have updated {len(self.mwa_file_list)} "
+                                          f"data_files rows, setting deleted flag "
+                                          f"to True.")
+            except:
+                self.log_exception(obs_id, f"Error updating data_files to be deleted")
+                return False
 
             # Update metadata database to set data quality to DELETED
-            if self.execute:
-                pass
-            else:
-                self.log_info(obs_id, f"Would have updated data quality of observation "
-                                      f"to {MWADataQualityFlags.DELETED.name} "
-                                      f"({MWADataQualityFlags.DELETED.value}).")
+            try:
+                if self.execute:
+                    pass
+                else:
+                    self.log_info(obs_id, f"Would have updated data quality of observation "
+                                          f"to {MWADataQualityFlags.DELETED.name} "
+                                          f"({MWADataQualityFlags.DELETED.value}).")
+            except:
+                self.log_exception(obs_id, f"Error updating data quality of observation")
+                return False
         else:
-            self.log_warning(obs_id, f"Not all items for this observation processed successfully. "
+            self.log_warning(obs_id, f"Not all items for this observation processed successfully. Skipping further operations."
                                      f"({self.num_items_to_process - self.num_items_processed_successfully} of "
                                      f"{self.num_items_to_process} failed)")
+            return False
+
         return True
 
 

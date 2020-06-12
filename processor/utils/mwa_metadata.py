@@ -15,6 +15,7 @@ class MWAFileTypeFlags(Enum):
     GPUBOX_FILE = 8
     FLAG_FILE = 10
     VOLTAGE_RAW_FILE = 11
+    MWA_PPD_FILE = 14
     VOLTAGE_ICS_FILE = 15
     VOLTAGE_RECOMBINED_ARCHIVE_FILE = 16
 
@@ -110,20 +111,17 @@ def get_obs_frequencies(database_pool, obs_id: int):
         return None
 
 
-def get_obs_data_file_filenames(database_pool, obs_id: int,
-                                deleted: bool = False, remote_archived: bool = True) -> list:
+def get_obs_data_files_filenames_except_ppds(database_pool, obs_id: int,
+                                             deleted: bool = False, remote_archived: bool = True) -> list:
     sql = f"""SELECT filename 
               FROM data_files 
-              WHERE filetype IN (%s, %s, %s, %s) 
+              WHERE filetype NOT IN (%s) 
               AND observation_num = %s
               AND deleted = %s
               AND remote_archived = %s
               ORDER BY filename"""
 
-    results = run_sql_get_many_rows(database_pool, sql, (MWAFileTypeFlags.GPUBOX_FILE.value,
-                                                         MWAFileTypeFlags.VOLTAGE_RAW_FILE.value,
-                                                         MWAFileTypeFlags.VOLTAGE_ICS_FILE.value,
-                                                         MWAFileTypeFlags.VOLTAGE_RECOMBINED_ARCHIVE_FILE.value,
+    results = run_sql_get_many_rows(database_pool, sql, (MWAFileTypeFlags.MWA_PPD_FILE.value,
                                                          int(obs_id),
                                                          deleted,
                                                          remote_archived, ))
