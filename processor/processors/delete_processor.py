@@ -31,7 +31,6 @@ class DeleteProcessor(GenericObservationProcessor):
                    obs.dataquality = %s 
                    AND obs.mode IN ('HW_LFILES', 'VOLTAGE_START', 'VOLTAGE_BUFFER')    
                    AND obs.dataqualitycomment IS NOT NULL
-                    AND obs.starttime IN (1076867192) --1272805816
                   ORDER BY obs.starttime ASC limit 2"""
 
         # Execute query
