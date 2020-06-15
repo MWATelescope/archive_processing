@@ -31,7 +31,7 @@ class DeleteProcessor(GenericObservationProcessor):
                    obs.dataquality = %s 
                    AND obs.mode IN ('HW_LFILES', 'VOLTAGE_START', 'VOLTAGE_BUFFER')    
                    AND obs.dataqualitycomment IS NOT NULL
-                  ORDER BY obs.starttime ASC limit 2"""
+                  ORDER BY obs.starttime ASC limit 1"""
 
         # Execute query
         params = (MWADataQualityFlags.MARKED_FOR_DELETE.value,)

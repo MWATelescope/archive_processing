@@ -104,10 +104,10 @@ class GenericObservationProcessor:
         self.observation_queue = queue.Queue()
         self.observation_item_queue = queue.Queue()
 
-        # Tracking info
-        self.observations_to_process = 0
-        self.observations_processed_successfully = 0
-        self.observations_failed_with_errors = 0
+        # Stats / info
+        self.stats_observations_to_process = 0
+        self.stats_observations_processed_successfully = 0
+        self.stats_observations_failed_with_errors = 0
 
         self.current_observations = []
         self.current_observation_items = []
@@ -322,7 +322,7 @@ class GenericObservationProcessor:
 
     def get_status(self) -> str:
         status = f"Running {self.concurrent_processes} tasks. " \
-                 f"Observations remaining: {self.observation_queue.qsize()}/{self.observations_to_process}"
+                 f"Observations remaining: {self.observation_queue.qsize()}/{self.stats_observations_to_process}"
 
         if self.implements_per_item_processing:
             status = f"{status} Processing: {self.current_observations} > " \
@@ -336,7 +336,7 @@ class GenericObservationProcessor:
         self.logger.info(f"Refreshing observation list...")
 
         # Acquire lock
-        self.observation_queue_lock.acquire(blocking=True)
+        self.observation_queue_lock.acquire(timeout=30)
 
         # Get a new list
         new_list = self.get_observation_list()
@@ -379,10 +379,10 @@ class GenericObservationProcessor:
         except Exception:
             self.logger.exception("Exception in get_observation_list()")
 
-        self.observations_to_process = len(observation_list)
+        self.stats_observations_to_process = len(observation_list)
 
         # Do we have any observations to process?
-        if self.observations_to_process > 0:
+        if self.stats_observations_to_process > 0:
             # Enqueue them
             for observation in observation_list:
                 self.observation_queue.put(observation)
@@ -398,7 +398,7 @@ class GenericObservationProcessor:
                 try:
                     while self.terminate is False:
                         # Get next item, but only if the queue is not locked
-                        self.observation_queue_lock.acquire(blocking=True)
+                        self.observation_queue_lock.acquire(timeout=30)
 
                         # Now get next item
                         obs_id = self.observation_queue.get_nowait()
@@ -435,17 +435,18 @@ class GenericObservationProcessor:
                                 self.observation_item_queue.put(item)
 
                             # process each file
-                            for thread_id in range(self.concurrent_processes):
-                                new_thread = threading.Thread(name=f"t{thread_id+1}",
-                                                              target=self.observation_item_consumer,
-                                                              args=(obs_id,))
-                                self.consumer_threads.append(new_thread)
+                            if self.observation_item_queue.qsize() > 0:
+                                for thread_id in range(self.concurrent_processes):
+                                    new_thread = threading.Thread(name=f"t{thread_id+1}",
+                                                                  target=self.observation_item_consumer,
+                                                                  args=(obs_id,))
+                                    self.consumer_threads.append(new_thread)
 
-                            # Start all threads
-                            for thread in self.consumer_threads:
-                                thread.start()
+                                # Start all threads
+                                for thread in self.consumer_threads:
+                                    thread.start()
 
-                            self.observation_item_queue.join()
+                                self.observation_item_queue.join()
 
                             self.logger.debug("Item Queue empty. Cleaning up...")
 
@@ -458,10 +459,10 @@ class GenericObservationProcessor:
 
                             # Now finalise the observation, if need be
                             if self.end_of_observation(obs_id):
-                                self.observations_processed_successfully = \
-                                    self.observations_processed_successfully + 1
+                                self.stats_observations_processed_successfully = \
+                                    self.stats_observations_processed_successfully + 1
                             else:
-                                self.observations_failed_with_errors = self.observations_failed_with_errors + 1
+                                self.stats_observations_failed_with_errors = self.stats_observations_failed_with_errors + 1
 
                         # Tell queue that job is done
                         self.observation_queue.task_done()
@@ -513,7 +514,7 @@ class GenericObservationProcessor:
         try:
             while self.terminate is False:
                 # Get next item, but only if the queue is not locked
-                self.observation_queue_lock.acquire(blocking=True)
+                self.observation_queue_lock.acquire(timeout=30)
 
                 # Get next item, now that the lock is released
                 obs_id = self.observation_queue.get_nowait()
@@ -533,9 +534,9 @@ class GenericObservationProcessor:
                 # process the observation
                 try:
                     if self.process_one_observation(obs_id):
-                        self.observations_processed_successfully = self.observations_processed_successfully + 1
+                        self.stats_observations_processed_successfully = self.stats_observations_processed_successfully + 1
                     else:
-                        self.observations_failed_with_errors = self.observations_failed_with_errors + 1
+                        self.stats_observations_failed_with_errors = self.stats_observations_failed_with_errors + 1
 
                 except Exception:
                     self.log_exception(obs_id, "Exception in process_one_observation()")
@@ -646,11 +647,11 @@ class GenericObservationProcessor:
             self.web_server.shutdown()
             self.logger.debug("Webserver stopped. ")
 
+            self.logger.info(f"Total Observations to process      : {self.stats_observations_to_process}")
+            self.logger.info(f"Observations attempted             : {self.stats_observations_processed_successfully + self.stats_observations_failed_with_errors}")
+            self.logger.info(f"Observations processed successfully: {self.stats_observations_processed_successfully}")
+            self.logger.info(f"Observations failed with errors    : {self.stats_observations_failed_with_errors}")
             self.terminated = True
-            self.logger.info(f"Total Observations to process      : {self.observations_to_process}")
-            self.logger.info(f"Observations attempted             : {self.observations_processed_successfully + self.observations_failed_with_errors}")
-            self.logger.info(f"Observations processed successfully: {self.observations_processed_successfully}")
-            self.logger.info(f"Observations failed with errors    : {self.observations_failed_with_errors}")
 
     def signal_handler(self, sig, frame):
         if self.logger:
