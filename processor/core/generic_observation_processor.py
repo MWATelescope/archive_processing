@@ -8,6 +8,7 @@ import signal
 import threading
 import time
 from configparser import ConfigParser
+from processor.core.observation import Observation
 from processor.core.processor_webservice import ProcessorHTTPServer, ProcessorHTTPGetHandler
 from processor.utils.mwa_archiving import pawsey_stage_files
 
@@ -83,7 +84,8 @@ class GenericObservationProcessor:
 
         # Get generic processor options
         self.implements_per_item_processing = config.getint("processing", "implements_per_item_processing")
-        self.concurrent_processes = config.getint("processing", "concurrent_processes")
+        self.concurrent_observations = config.getint("processing", "concurrent_observations")
+        self.concurrent_items = config.getint("processing", "concurrent_items")
 
         if config.has_option("processing", "working_path"):
             self.working_path = config.get("processing", "working_path")
@@ -106,7 +108,6 @@ class GenericObservationProcessor:
 
         # Queues
         self.observation_queue = queue.Queue()
-        self.observation_item_queue = queue.Queue()
 
         # Stats / info
         self.stats_observations_to_process = 0
@@ -114,11 +115,6 @@ class GenericObservationProcessor:
         self.stats_observations_failed_with_errors = 0
 
         self.current_observations = []
-        self.current_observation_items = []
-        self.successful_observation_items = []
-
-        self.num_items_to_process = 0
-        self.num_items_processed_successfully = 0
 
         # Threads
         self.consumer_threads = []
@@ -156,7 +152,7 @@ class GenericObservationProcessor:
             if os.path.isabs(file):
                 filename_list.append(os.path.split(file)[1])
             else:
-                self.log_error(obs_id, f"Staging failed: stage_files() requires absolute paths, not just filenames.")
+                self.log_error(obs_id, f"Staging failed: stage_files() requires absolute paths, not just filenames ({file}).")
 
         #
         # Stage the files on the Pawsey filesystem
@@ -171,7 +167,7 @@ class GenericObservationProcessor:
                 self.log_info(obs_id, f"Staging {len(filename_list)} files from tape... ")
             else:
                 self.log_info(obs_id, f"Staging {len(filename_list)} files from tape... "
-                                         f"(attempt {attempts}/{retry_attempts})")
+                                      f"(attempt {attempts}/{retry_attempts})")
 
             try:
                 # Staging will return 0 on success or non zero on staging error or raise exception on other failure
@@ -300,23 +296,23 @@ class GenericObservationProcessor:
         # This is to be supplied by the inheritor. Using SQL or whatever to get a list of obs_ids
         raise NotImplementedError()
 
-    def process_one_observation(self, obs_id: int) -> bool:
+    def process_one_observation(self, observation: Observation) -> bool:
         # This is to be supplied by the inheritor.
         # Any staging (for small obs) should be done by the inheritor
         raise NotImplementedError()
 
-    def get_observation_item_list(self, obs_id: int) -> list:
+    def get_observation_item_list(self, observation: Observation) -> list:
         # This is to be supplied by the inheritor. We pass in the list of staged files for the current obs_id
         # If implements_per_item_processing == 0 then just 'pass'
         raise NotImplementedError()
 
-    def process_one_item(self, obs_id, item: str) -> bool:
+    def process_one_item(self, observation: Observation, item: str) -> bool:
         # This is to be supplied by the inheritor.
         # If implements_per_item_processing == 0 then just 'pass'
         # For large (e.g. VCS) observations, inheritor should stage files here
         raise NotImplementedError()
 
-    def end_of_observation(self, obs_id: int) -> bool:
+    def end_of_observation(self, observation: Observation) -> bool:
         # This is to be supplied by the inheritor.
         # If implements_per_item_processing == 0 then just 'pass'
         raise NotImplementedError()
@@ -325,12 +321,14 @@ class GenericObservationProcessor:
         web_server.serve_forever()
 
     def get_status(self) -> str:
-        status = f"Running {self.concurrent_processes} tasks. " \
+        status = f"Running {self.concurrent_observations} observations. " \
                  f"Observations remaining: {self.observation_queue.qsize()}/{self.stats_observations_to_process}"
 
         if self.implements_per_item_processing:
-            status = f"{status} Processing: {self.current_observations} > " \
-                     f"{[os.path.split(c)[1] if len(os.path.split(c)) == 2 else c for c in self.current_observation_items]}\n"
+            status = f"{status} Processing: {self.current_observations} > "
+
+            for child in self.current_observations:
+                status = status + f"{[os.path.split(c)[1] if len(os.path.split(c)) == 2 else c for c in child.current_observation_items]}\n"
         else:
             status = f"{status} Processing: {self.current_observations}\n"
 
@@ -388,123 +386,30 @@ class GenericObservationProcessor:
         # Do we have any observations to process?
         if self.stats_observations_to_process > 0:
             # Enqueue them
-            for observation in observation_list:
-                self.observation_queue.put(observation)
+            for observation_id in observation_list:
+                new_obs = Observation(self, observation_id)
+                self.observation_queue.put(new_obs)
 
             # Do processing
-            if self.implements_per_item_processing:
-                self.logger.info(f"A single observation and {self.concurrent_processes} concurrent items "
-                                 f"will be processed.")
+            self.logger.info(f"{self.concurrent_observations} concurrent observations will be processed.")
 
-                # Loop through obs_id's one by one
-                # execute process_one_observation
-                # then kick off x number of consumers of files simultaneously
-                try:
-                    while self.terminate is False:
-                        # Get next item, but only if the queue is not locked
-                        self.observation_queue_lock.acquire(timeout=30)
+            # Kick off x number of consumers of observations simultaneously
+            for thread_id in range(self.concurrent_observations):
+                new_thread = threading.Thread(name=f"o{thread_id+1}", target=self.observation_consumer)
+                self.consumer_threads.append(new_thread)
 
-                        # Now get next item
-                        obs_id = self.observation_queue.get_nowait()
+            # Start all threads
+            for thread in self.consumer_threads:
+                thread.start()
 
-                        # Release lock
-                        self.observation_queue_lock.release()
+            # Wait for all consumers to finish
+            self.observation_queue.join()
 
-                        # keep track of what we are working on
-                        self.current_observations.append(obs_id)
+            self.logger.debug("Queue empty. Cleaning up...")
 
-                        self.log_info(obs_id, "Started")
-
-                        # Prepare a working area for this observation
-                        if self.working_path:
-                            self.prepare_observation_working_directory(obs_id)
-
-                        observation_result = False
-
-                        # give the caller a chance to do something on the observation itself
-                        try:
-                            observation_result = self.process_one_observation(obs_id)
-                        except Exception:
-                            self.log_exception(obs_id, "Exception in process_one_observation()")
-
-                        if observation_result:
-                            # now get the list of items to process
-                            observation_item_list = self.get_observation_item_list(obs_id)
-                            self.num_items_to_process = len(observation_item_list)
-                            self.num_items_processed_successfully = 0
-                            self.successful_observation_items = []
-
-                            # Enqueue items into the queue
-                            for item in observation_item_list:
-                                self.observation_item_queue.put(item)
-
-                            # process each file
-                            if self.observation_item_queue.qsize() > 0:
-                                for thread_id in range(self.concurrent_processes):
-                                    new_thread = threading.Thread(name=f"t{thread_id+1}",
-                                                                  target=self.observation_item_consumer,
-                                                                  args=(obs_id,))
-                                    self.consumer_threads.append(new_thread)
-
-                                # Start all threads
-                                for thread in self.consumer_threads:
-                                    thread.start()
-
-                                self.observation_item_queue.join()
-
-                            self.logger.debug("Item Queue empty. Cleaning up...")
-
-                            # Cancel the consumers- these will be idle now anyway
-                            for thread in self.consumer_threads:
-                                thread.join()
-
-                            # Reset consumer theads list for next loop
-                            self.consumer_threads = []
-
-                            # Now finalise the observation, if need be
-                            if self.end_of_observation(obs_id):
-                                self.stats_observations_processed_successfully = \
-                                    self.stats_observations_processed_successfully + 1
-                            else:
-                                self.stats_observations_failed_with_errors = self.stats_observations_failed_with_errors + 1
-
-                        # Tell queue that job is done
-                        self.observation_queue.task_done()
-
-                        # Cleanup any temp files in working area
-                        if self.working_path:
-                            self.cleanup_observation_working_directory(obs_id)
-
-                        # Update stats
-                        self.current_observations.remove(obs_id)
-
-                        self.log_info(obs_id, "Complete")
-                except queue.Empty:
-                    self.logger.debug(f"Queue empty")
-
-                    # Release lock
-                    self.observation_queue_lock.release()
-
-            else:
-                self.logger.info(f"{self.concurrent_processes} concurrent observations will be processed.")
-
-                # Kick off x number of consumers of observations simultaneously
-                for thread_id in range(self.concurrent_processes):
-                    new_thread = threading.Thread(name=f"t{thread_id+1}", target=self.observation_consumer)
-                    self.consumer_threads.append(new_thread)
-
-                # Start all threads
-                for thread in self.consumer_threads:
-                    thread.start()
-
-                # Wait for all consumers to finish
-                self.observation_queue.join()
-
-                self.logger.debug("Queue empty. Cleaning up...")
-
-                # Cancel the consumers- these will be idle now anyway
-                for thread in self.consumer_threads:
-                    thread.join()
+            # Cancel the consumers- these will be idle now anyway
+            for thread in self.consumer_threads:
+                thread.join()
 
         # Stopped
         self.logger.debug("main() stopped. ")
@@ -521,41 +426,52 @@ class GenericObservationProcessor:
                 self.observation_queue_lock.acquire(timeout=30)
 
                 # Get next item, now that the lock is released
-                obs_id = self.observation_queue.get_nowait()
+                observation = self.observation_queue.get_nowait()
 
                 # Release lock
                 self.observation_queue_lock.release()
 
                 # Keep track of what we are working on
-                self.current_observations.append(obs_id)
+                self.current_observations.append(observation.obs_id)
 
-                self.log_info(obs_id, "Started")
+                self.log_info(observation.obs_id, "Started")
 
                 # Prepare a working area
                 if self.working_path:
-                    self.prepare_observation_working_directory(obs_id)
+                    self.prepare_observation_working_directory(observation.obs_id)
 
                 # process the observation
                 try:
-                    if self.process_one_observation(obs_id):
-                        self.stats_observations_processed_successfully = self.stats_observations_processed_successfully + 1
+                    if self.process_one_observation(observation):
+                        if self.implements_per_item_processing:
+                            if observation.process():
+                                # Now finalise the observation, if need be
+                                if self.end_of_observation(observation):
+                                    self.stats_observations_processed_successfully = \
+                                        self.stats_observations_processed_successfully + 1
+                                else:
+                                    self.stats_observations_failed_with_errors = \
+                                        self.stats_observations_failed_with_errors + 1
+                        else:
+                            self.stats_observations_processed_successfully = \
+                                self.stats_observations_processed_successfully + 1
                     else:
                         self.stats_observations_failed_with_errors = self.stats_observations_failed_with_errors + 1
 
                 except Exception:
-                    self.log_exception(obs_id, "Exception in process_one_observation()")
+                    self.log_exception(observation.obs_id, "Exception in process_one_observation()")
 
                 # Tell queue that job is done
                 self.observation_queue.task_done()
 
                 # Cleanup any temp files in working area
                 if self.working_path:
-                    self.cleanup_observation_working_directory(obs_id)
+                    self.cleanup_observation_working_directory(observation.obs_id)
 
                 # Update stat on what we're working on
-                self.current_observations.remove(obs_id)
+                self.current_observations.remove(observation.obs_id)
 
-                self.log_info(obs_id, "Complete")
+                self.log_info(observation.obs_id, "Complete")
 
         except queue.Empty:
             self.logger.debug(f"Queue empty")
@@ -563,38 +479,6 @@ class GenericObservationProcessor:
             # Release lock
             self.observation_queue_lock.release()
 
-        return True
-
-    def observation_item_consumer(self, obs_id: int) -> bool:
-        try:
-            self.log_debug(obs_id, f"Task Started")
-
-            while self.terminate is False:
-                # Get next item
-                item = self.observation_item_queue.get_nowait()
-
-                # Update stats
-                self.current_observation_items.append(item)
-
-                try:
-                    if self.process_one_item(obs_id, item):
-                        self.num_items_processed_successfully += 1
-                        self.successful_observation_items.append(item)
-
-                except Exception:
-                    self.log_exception(obs_id, f"{item}: Exception in process_one_item()")
-                finally:
-                    # Tell queue that job is done
-                    self.observation_item_queue.task_done()
-
-                    # Update stats
-                    self.current_observation_items.remove(item)
-
-        except queue.Empty:
-            self.log_debug(obs_id, "Queue empty")
-
-        # Mark this task as done
-        self.log_debug(obs_id, "Task Complete")
         return True
 
     def start(self):
@@ -629,11 +513,7 @@ class GenericObservationProcessor:
                     time.sleep(0.1)
 
             # Now they are all stopped, we can dequeue the remaining items and cleanup
-            self.logger.debug("Clearing queues")
-            while self.observation_item_queue.qsize() > 0:
-                self.observation_item_queue.get_nowait()
-                self.observation_item_queue.task_done()
-
+            self.logger.debug("Clearing observation queue")
             while self.observation_queue.qsize() > 0:
                 self.observation_queue.get_nowait()
                 self.observation_queue.task_done()

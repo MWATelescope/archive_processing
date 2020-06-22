@@ -49,6 +49,30 @@ def get_latest_ngas_file_path_and_address_for_filename(database_pool, file_id: s
         return None
 
 
+def get_all_ngas_file_path_and_address_for_obs_id(database_pool, obs_id: int):
+    sql = """SELECT  
+                     mount_point || '/' || file_name as path, 
+                     ngas_hosts.ip_address as address 
+              FROM ngas_files inner join ngas_disks 
+                   on ngas_disks.disk_id = ngas_files.disk_id 
+              inner join ngas_hosts on ngas_disks.host_id = ngas_hosts.host_id 
+              WHERE file_id like %s 
+                and ngas_disks.disk_id in 
+                    ('35ecaa0a7c65795635087af61c3ce903', 
+                     '54ab8af6c805f956c804ee1e4de92ca4', 
+                     '921d259d7bc2a0ae7d9a532bccd049c7', 
+                     'e3d87c5bc9fa1f17a84491d03b732afd',
+                     '848575aeeb7a8a6b5579069f2b72282c') 
+              order by file_id, file_version"""
+
+    results = run_sql_get_many_rows(database_pool, sql, (str(obs_id) + "%", ))
+
+    if results:
+        return [r['path'] for r in results]
+    else:
+        return []
+
+
 def get_all_ngas_file_path_and_address_for_filename(database_pool, file_id: str):
     sql = """SELECT  
                      mount_point || '/' || file_name as path, 
