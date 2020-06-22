@@ -33,7 +33,11 @@ class GenericObservationProcessor:
             print("No ./logs directory found. Creating directory.")
             os.mkdir("logs")
 
-        self.log_filename = f"logs/{self.name}.log"
+        if self.execute:
+            self.log_filename = f"logs/{self.name}.log"
+        else:
+            self.log_filename = f"logs/{self.name}_dry_run.log"
+
         log_file_handler = logging.FileHandler(self.log_filename)
         log_file_handler.setLevel(logging.DEBUG)
         log_file_handler.setFormatter(logging.Formatter("%(asctime)s, %(levelname)s, [%(threadName)s], %(message)s"))
@@ -625,14 +629,6 @@ class GenericObservationProcessor:
                     time.sleep(0.1)
 
             # Now they are all stopped, we can dequeue the remaining items and cleanup
-            # Close pools
-            self.logger.debug(f"Closing database pools")
-            if self.mro_metadata_db_pool:
-                self.mro_metadata_db_pool.closeall()
-
-            if self.ngas_db_pool:
-                self.ngas_db_pool.closeall()
-
             self.logger.debug("Clearing queues")
             while self.observation_item_queue.qsize() > 0:
                 self.observation_item_queue.get_nowait()
@@ -641,6 +637,14 @@ class GenericObservationProcessor:
             while self.observation_queue.qsize() > 0:
                 self.observation_queue.get_nowait()
                 self.observation_queue.task_done()
+
+            # Close pools
+            self.logger.debug(f"Closing database pools")
+            if self.mro_metadata_db_pool:
+                self.mro_metadata_db_pool.closeall()
+
+            if self.ngas_db_pool:
+                self.ngas_db_pool.closeall()
 
             # End the web server
             self.logger.info("Webserver stopping...")

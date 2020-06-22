@@ -23,15 +23,13 @@ class DeleteProcessor(GenericObservationProcessor):
     def get_observation_list(self) -> list:
         self.logger.info(f"Getting list of observations...")
 
-        observation_list = []
-
         sql = f"""SELECT obs.starttime As obs_id 
                   FROM mwa_setting As obs 
                   WHERE 
                    obs.dataquality = %s 
                    AND obs.mode IN ('HW_LFILES') -- 'VOLTAGE_START', 'VOLTAGE_BUFFER')    
                    AND obs.dataqualitycomment IS NOT NULL
-                  ORDER BY obs.starttime ASC limit 1000"""
+                  ORDER BY obs.starttime ASC limit 10"""
 
         # Execute query
         params = (MWADataQualityFlags.MARKED_FOR_DELETE.value,)
@@ -40,7 +38,7 @@ class DeleteProcessor(GenericObservationProcessor):
         if results:
             observation_list = [r['obs_id'] for r in results]
         else:
-            return observation_list
+            return []
 
         self.logger.info(f"{len(observation_list)} observations to process.")
         return observation_list

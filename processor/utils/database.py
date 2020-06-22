@@ -7,18 +7,26 @@ def run_sql_get_one_row(database_pool, sql: str, args):
     cur = None
 
     try:
-        conn = database_pool.getconn()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        if database_pool:
+            conn = database_pool.getconn()
 
-        if args is None:
-            cur.execute(sql)
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+
+            if args is None:
+                cur.execute(sql)
+            else:
+                cur.execute(sql, args)
+
+            record = cur.fetchone()
+            conn.commit()
         else:
-            cur.execute(sql, args)
+            raise Exception("database pool is not initialised")
 
-        record = cur.fetchone()
-
-    except (Exception, psycopg2.DatabaseError) as error:
+    except Exception as error:
+        if conn:
+            conn.rollback()
         raise error
+
     finally:
         if cur:
             cur.close()
@@ -33,22 +41,31 @@ def run_sql_get_many_rows(database_pool, sql: str, args) -> list:
     cur = None
 
     try:
-        conn = database_pool.getconn()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        if database_pool:
+            conn = database_pool.getconn()
 
-        if args is None:
-            cur.execute(sql)
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+
+            if args is None:
+                cur.execute(sql)
+            else:
+                cur.execute(sql, args)
+
+            records = cur.fetchall()
+
+            conn.commit()
+
         else:
-            cur.execute(sql, args)
+            raise Exception("database pool is not initialised")
 
-        records = cur.fetchall()
-
-    except (Exception, psycopg2.DatabaseError) as error:
+    except Exception as error:
+        if conn:
+            conn.rollback()
         raise error
+
     finally:
         if cur:
             cur.close()
         if conn:
             database_pool.putconn(conn)
-
     return records
