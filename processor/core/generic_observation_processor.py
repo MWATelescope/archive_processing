@@ -129,13 +129,13 @@ class GenericObservationProcessor:
 
         # Create pools
         self.logger.info("Setting up database pools...")
-        self.mro_metadata_db_pool = psycopg2.pool.ThreadedConnectionPool(0, 10,
+        self.mro_metadata_db_pool = psycopg2.pool.ThreadedConnectionPool(2, 10,
                                                                          user=self.mro_metadata_db_user,
                                                                          password=self.mro_metadata_db_pass,
                                                                          host=self.mro_metadata_db_host,
                                                                          port=self.mro_metadata_db_port,
                                                                          database=self.mro_metadata_db_name)
-        self.ngas_db_pool = psycopg2.pool.ThreadedConnectionPool(0, 10,
+        self.ngas_db_pool = psycopg2.pool.ThreadedConnectionPool(2, 10,
                                                                  user=self.ngas_db_user,
                                                                  password=self.ngas_db_pass,
                                                                  host=self.ngas_db_host,

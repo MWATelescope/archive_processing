@@ -28,9 +28,9 @@ class DeleteProcessor(GenericObservationProcessor):
                   FROM mwa_setting As obs 
                   WHERE 
                    obs.dataquality = %s 
-                   AND obs.mode IN ('HW_LFILES') -- 'VOLTAGE_START', 'VOLTAGE_BUFFER')    
+                   AND obs.mode IN ('HW_LFILES', 'VOLTAGE_START', 'VOLTAGE_BUFFER')    
                    AND obs.dataqualitycomment IS NOT NULL
-                  ORDER BY obs.starttime ASC limit 10"""
+                  ORDER BY obs.starttime ASC"""
 
         # Execute query
         params = (MWADataQualityFlags.MARKED_FOR_DELETE.value,)
@@ -50,6 +50,9 @@ class DeleteProcessor(GenericObservationProcessor):
 
     def get_observation_item_list(self, observation: Observation) -> list:
         self.log_info(observation.obs_id, f"Getting list of files...")
+
+        self.mwa_file_list = []
+        self.ngas_file_list = []
 
         # Get MWA file list
         try:
