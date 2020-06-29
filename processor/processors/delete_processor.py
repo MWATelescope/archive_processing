@@ -117,7 +117,7 @@ class DeleteProcessor(GenericObservationProcessor):
                 # Especially for VCS observations with >100K files to delete
                 file_to_delete_count = len(self.ngas_file_list)
                 file_index = 0
-                batch_size = 250
+                batch_size = 2500
 
                 # Keep processing batches until we have nothing left to process
                 while file_to_delete_count > 0:
@@ -156,7 +156,7 @@ class DeleteProcessor(GenericObservationProcessor):
                 # Especially for VCS observations with >100K files to update
                 file_to_update_count = len(self.mwa_file_list)
                 file_index = 0
-                batch_size = 250
+                batch_size = 2500
 
                 # Keep processing batches until we have nothing left to process
                 while file_to_update_count > 0:
