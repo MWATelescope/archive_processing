@@ -1,11 +1,13 @@
 # archive_processing
 Python 3.6+ compatible MWA Archive processing utilities.
 
+Currently the following are implemented:
+* delete_processor: Purging of any observations marked as 'to be deleted'.
+* delete_vcs_raw_processor: Delete redundant raw VCS data after recombine has been verified.
+
 This repo will eventually comprise the following utilities all using a common framework and common code:
 * offline_compression_processor: Compress and replace older observations.
 * flag_processor: RFI detection and flag file generation & archiving on new observations.
-* delete_processor: Purging of any observations marked as 'to be deleted'.
-* delete_redundant_vcs_processor: Delete redundant raw VCS data after recombine has been verified.
 * voltage_processor: Drives the recombine process to produce useable VCS data.
 
 These utilities run at Pawsey to support MWA Archive Operations.
