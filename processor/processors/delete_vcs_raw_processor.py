@@ -25,7 +25,8 @@ class DeleteVCSRawProcessor(GenericObservationProcessor):
                 obs_id = int(obs_id_string.strip())
                 self.config_file_obs_list.append(obs_id)
 
-            print(f"Read {len(self.config_file_obs_list)} observation ids from config file.\n{self.config_file_obs_list}")
+            self.logger.info(f"Read {len(self.config_file_obs_list)} observation ids from config file.")
+            self.logger.debug(f"{self.config_file_obs_list}")
         else:
             print("Error: observations->obs_ids entry in config file contains no observation ids. Exiting")
             exit(-1)
