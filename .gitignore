@@ -4,6 +4,7 @@ build/
 cfg/offline_compress.cfg
 cfg/test_processor*.cfg
 cfg/delete_processor.cfg
+cfg/delete_vcs_raw_processor.cfg
 dist/
 env/
 logs/

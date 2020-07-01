@@ -26,6 +26,46 @@ class MWAModeFlags(Enum):
     VOLTAGE_BUFFER = 'VOLTAGE_BUFFER'
 
 
+# This takes in a list of obsids and puts it through a select to ensure
+# the obsids are VOLTAGE observations and they are recombined.
+def get_recombined_observations_with_list(database_pool, obs_id_list: list) -> list:
+    sql = f"""SELECT obs.starttime As obs_id 
+                      FROM mwa_setting As obs 
+                      WHERE 
+                       obs.dataquality = %s 
+                       AND obs.mode IN ('VOLTAGE_START', 'VOLTAGE_BUFFER')
+                       AND obs.starttime = any(%s)
+                      ORDER BY obs.starttime ASC"""
+
+    # Execute query
+    params = (MWADataQualityFlags.PROCESSED.value, obs_id_list,)
+    results = run_sql_get_many_rows(database_pool, sql, params)
+
+    if results:
+        return [r['obs_id'] for r in results]
+    else:
+        return []
+
+
+def get_observations_marked_for_delete(database_pool) -> list:
+    sql = f"""SELECT obs.starttime As obs_id 
+              FROM mwa_setting As obs 
+              WHERE 
+               obs.dataquality = %s 
+               AND obs.mode IN ('HW_LFILES', 'VOLTAGE_START', 'VOLTAGE_BUFFER')    
+               AND obs.dataqualitycomment IS NOT NULL
+              ORDER BY obs.starttime ASC"""
+
+    # Execute query
+    params = (MWADataQualityFlags.MARKED_FOR_DELETE.value,)
+    results = run_sql_get_many_rows(database_pool, sql, params)
+
+    if results:
+        return [r['obs_id'] for r in results]
+    else:
+        return []
+
+
 def update_mwa_setting_dataquality(database_pool, obsid: int, dataquality: MWADataQualityFlags):
     #
     # Updates the mwa_setting row in the metadata database to be dataquality = dataquality
@@ -137,6 +177,27 @@ def get_obs_gpubox_filenames(database_pool, obs_id: int, deleted: bool = False, 
               ORDER BY filename"""
 
     results = run_sql_get_many_rows(database_pool, sql, (MWAFileTypeFlags.GPUBOX_FILE.value,
+                                                         int(obs_id),
+                                                         deleted,
+                                                         remote_archived, ))
+
+    if results:
+        return [r['filename'] for r in results]
+    else:
+        return []
+
+
+def get_vcs_raw_data_files_filenames(database_pool, obs_id: int,
+                                     deleted: bool = False, remote_archived: bool = True) -> list:
+    sql = f"""SELECT filename 
+              FROM data_files 
+              WHERE filetype  = %s 
+              AND observation_num = %s
+              AND deleted = %s
+              AND remote_archived = %s
+              ORDER BY filename"""
+
+    results = run_sql_get_many_rows(database_pool, sql, (MWAFileTypeFlags.VOLTAGE_RAW_FILE.value,
                                                          int(obs_id),
                                                          deleted,
                                                          remote_archived, ))

@@ -3,11 +3,11 @@ import os
 from configparser import ConfigParser
 from processor.core.generic_observation_processor import GenericObservationProcessor
 from processor.core.observation import Observation
-from processor.utils.mwa_metadata import MWADataQualityFlags, get_observations_marked_for_delete, get_obs_data_files_filenames_except_ppds, set_mwa_data_files_deleted_flag, update_mwa_setting_dataquality
+from processor.utils.mwa_metadata import get_recombined_observations_with_list, get_vcs_raw_data_files_filenames, set_mwa_data_files_deleted_flag
 from processor.utils.ngas_metadata import get_all_ngas_file_path_and_address_for_filename_list, delete_ngas_files
 
 
-class DeleteProcessor(GenericObservationProcessor):
+class DeleteVCSRawProcessor(GenericObservationProcessor):
     def __init__(self, processor_name: str, config: ConfigParser, execute: bool):
         super().__init__(processor_name, config, execute)
 
@@ -15,10 +15,31 @@ class DeleteProcessor(GenericObservationProcessor):
         self.mwa_file_list = []
         self.ngas_file_list = []
 
+        # Read list of obsids to process
+        config_obs_id_string = config.get("observations", "obs_ids")
+
+        if len(config_obs_id_string) != 0:
+            self.config_file_obs_list = []
+
+            for obs_id_string in config_obs_id_string.split(","):
+                obs_id = int(obs_id_string.strip())
+                self.config_file_obs_list.append(obs_id)
+
+            print(f"Read {len(self.config_file_obs_list)} observation ids from config file.\n{self.config_file_obs_list}")
+        else:
+            print("Error: observations->obs_ids entry in config file contains no observation ids. Exiting")
+            exit(-1)
+
     def get_observation_list(self) -> list:
+        #
+        # Even though we have a hard coded list of obs_id's from the config file
+        # We still want to verify they meet some minimum conditions to prevent accidents
+        # 1. Must be VOLTAGE_START or VOLTAGE_BUFFER
+        # 2. Must be recombined (dataquality=PROCESSED)
+        #
         self.logger.info(f"Getting list of observations...")
 
-        observation_list = get_observations_marked_for_delete(self.mro_metadata_db_pool)
+        observation_list = get_recombined_observations_with_list(self.mro_metadata_db_pool, self.config_file_obs_list)
 
         self.logger.info(f"{len(observation_list)} observations to process.")
         return observation_list
@@ -35,16 +56,16 @@ class DeleteProcessor(GenericObservationProcessor):
 
         # Get MWA file list
         try:
-            self.mwa_file_list = get_obs_data_files_filenames_except_ppds(self.mro_metadata_db_pool,
-                                                                          observation.obs_id,
-                                                                          deleted=False,
-                                                                          remote_archived=True)
+            self.mwa_file_list = get_vcs_raw_data_files_filenames(self.mro_metadata_db_pool,
+                                                                  observation.obs_id,
+                                                                  deleted=False,
+                                                                  remote_archived=True)
         except Exception:
-            self.log_exception(observation.obs_id, "Could not get mwa data files for obs_id.")
+            self.log_exception(observation.obs_id, "Could not get raw mwa data files for obs_id.")
             return []
 
         if len(self.mwa_file_list) == 0:
-            self.log_info(observation.obs_id, f"No data files found in mwa database")
+            self.log_info(observation.obs_id, f"No raw data files found in mwa database")
             return []
 
         # Get NGAS file list, based on the mwa metadata list
@@ -82,7 +103,7 @@ class DeleteProcessor(GenericObservationProcessor):
         # This file was successfully processed
         if observation.num_items_to_process == observation.num_items_processed_successfully:
             self.log_info(observation.obs_id, f"All items for this observation processed successfully. "
-                                  f"Deleting ngas_files, updating data_files & mwa_setting...")
+                                  f"Deleting ngas_files and updating data_files...")
 
             if len(observation.successful_observation_items) != observation.num_items_processed_successfully:
                 self.log_error(observation.obs_id, f"Mismatch between successful count "
@@ -171,23 +192,6 @@ class DeleteProcessor(GenericObservationProcessor):
             except:
                 self.log_exception(observation.obs_id, f"Error deleting files from ngas database")
                 return False
-
-            # Update metadata database to set data quality to DELETED
-            try:
-                if self.execute:
-                    update_mwa_setting_dataquality(self.mro_metadata_db_pool, observation.obs_id,
-                                                   MWADataQualityFlags.DELETED)
-
-                    self.log_info(observation.obs_id, f"Data quality of observation updated "
-                                                      f"to {MWADataQualityFlags.DELETED.name} "
-                                                      f"({MWADataQualityFlags.DELETED.value})")
-                else:
-                    self.log_info(observation.obs_id, f"Would have updated data quality of observation "
-                                                      f"to {MWADataQualityFlags.DELETED.name} "
-                                                      f"({MWADataQualityFlags.DELETED.value}).")
-            except:
-                self.log_exception(observation.obs_id, f"Error updating data quality of observation")
-                return False
         else:
             self.log_warning(observation.obs_id, f"Not all items for this observation processed successfully. "
                                                  f"Skipping further operations."
@@ -199,7 +203,7 @@ class DeleteProcessor(GenericObservationProcessor):
 
 
 def run():
-    print("Starting DeleteProcessor...")
+    print("Starting DeleteVCSRawProcessor...")
 
     # Get command line arguments
     parser = argparse.ArgumentParser()
@@ -224,8 +228,7 @@ def run():
     config.read(cfg_file)
 
     # Create class instance
-    processor = DeleteProcessor("DeleteProcessor", config, args.execute)
+    processor = DeleteVCSRawProcessor("DeleteVCSRawProcessor", config, args.execute)
 
     # Initialise
     processor.start()
-
