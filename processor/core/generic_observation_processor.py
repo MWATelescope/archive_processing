@@ -30,14 +30,19 @@ class GenericObservationProcessor:
         self.logger.propagate = False
 
         # Setup log file logging
-        if not os.path.isdir("logs"):
-            print("No ./logs directory found. Creating directory.")
-            os.mkdir("logs")
+        if config.has_option("processing", "log_dir"):
+            log_dir = config.get("processing", "log_dir")
+        else:
+            log_dir = "logs"
+
+        if not os.path.isdir(log_dir):
+            print(f"Log director {log_dir} directory found. Creating directory.")
+            os.mkdir(log_dir)
 
         if self.execute:
-            self.log_filename = f"logs/{self.name}.log"
+            self.log_filename = f"{log_dir}/{self.name}.log"
         else:
-            self.log_filename = f"logs/{self.name}_dry_run.log"
+            self.log_filename = f"{log_dir}/{self.name}_dry_run.log"
 
         log_file_handler = logging.FileHandler(self.log_filename)
         log_file_handler.setLevel(logging.DEBUG)
