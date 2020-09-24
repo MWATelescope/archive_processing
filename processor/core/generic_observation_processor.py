@@ -1,115 +1,22 @@
-import glob
-import logging.handlers
 import os
-import psycopg2.pool
 import queue
 import shutil
-import signal
 import threading
 import time
 from configparser import ConfigParser
+from processor.core.generic_processor import GenericProcessor
 from processor.core.observation import Observation
-from processor.core.processor_webservice import ProcessorHTTPServer, ProcessorHTTPGetHandler
 from processor.utils.mwa_archiving import pawsey_stage_files
 
 
-class GenericObservationProcessor:
+class GenericObservationProcessor(GenericProcessor):
     def __init__(self, processor_name: str, config: ConfigParser, execute: bool):
-        print(f"Initialising {processor_name}...")
-        self.name = processor_name
-        self.execute = execute
-        self.terminate = False
-        self.terminated = False
-
-        # Setup signal handler
-        signal.signal(signal.SIGINT, self.signal_handler)
-
-        # Setup logging
-        self.logger = logging.getLogger("processor")
-        self.logger.setLevel(logging.DEBUG)
-        self.logger.propagate = False
-
-        # Setup log file logging
-        if config.has_option("processing", "log_dir"):
-            log_dir = config.get("processing", "log_dir")
-        else:
-            log_dir = "logs"
-
-        if not os.path.isdir(log_dir):
-            print(f"Log director {log_dir} directory found. Creating directory.")
-            os.mkdir(log_dir)
-
-        if self.execute:
-            self.log_filename = f"{log_dir}/{self.name}.log"
-        else:
-            self.log_filename = f"{log_dir}/{self.name}_dry_run.log"
-
-        log_file_handler = logging.FileHandler(self.log_filename)
-        log_file_handler.setLevel(logging.DEBUG)
-        log_file_handler.setFormatter(logging.Formatter("%(asctime)s, %(levelname)s, [%(threadName)s], %(message)s"))
-        self.logger.addHandler(log_file_handler)
-
-        # Setup console logging
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.DEBUG)
-        console_handler.setFormatter(logging.Formatter("%(asctime)s, %(levelname)s, [%(threadName)s], %(message)s"))
-        self.logger.addHandler(console_handler)
-
-        self.logger.info("Reading configuration...")
-
-        if config.get("processing", "log_level") == "DEBUG":
-            self.logger.setLevel(logging.DEBUG)
-        elif config.get("processing", "log_level") == "INFO":
-            self.logger.setLevel(logging.INFO)
-        else:
-            print("Error: log_level in config file must be DEBUG or INFO. Exiting.")
-            exit(-1)
-
-        # Database connection config
-        self.mro_metadata_db_host = config.get("mro_metadata_db", "host")
-        self.mro_metadata_db_port = config.getint("mro_metadata_db", "port")
-        self.mro_metadata_db_name = config.get("mro_metadata_db", "db")
-        self.mro_metadata_db_user = config.get("mro_metadata_db", "user")
-        self.mro_metadata_db_pass = config.get("mro_metadata_db", "pass")
-
-        self.ngas_db_host = config.get("ngas_db", "host")
-        self.ngas_db_port = config.getint("ngas_db", "port")
-        self.ngas_db_name = config.get("ngas_db", "db")
-        self.ngas_db_user = config.get("ngas_db", "user")
-        self.ngas_db_pass = config.get("ngas_db", "pass")
-
-        # Staging config
-        self.staging_host = config.get("staging", "dmget_host")
-        self.staging_port = config.getint("staging", "dmget_port")
-        self.staging_retry_attempts = config.getint("staging", "retry_attempts")
-        self.staging_backoff_seconds = config.getint("staging", "backoff_seconds")
-
-        # Web server config
-        self.web_service_port = config.get("web_service", "port")
+        super().__init__(processor_name, config, execute)
 
         # Get generic processor options
         self.implements_per_item_processing = config.getint("processing", "implements_per_item_processing")
         self.concurrent_observations = config.getint("processing", "concurrent_observations")
         self.concurrent_items = config.getint("processing", "concurrent_items")
-
-        if config.has_option("processing", "working_path"):
-            self.working_path = config.get("processing", "working_path")
-
-            # Check working path
-            self.check_root_working_directory_exists()
-
-            # Clean working path
-            self.cleanup_root_working_directory()
-        else:
-            self.working_path = None
-
-        # Initialise stuff
-        self.logger.info("Initialising...")
-
-        if self.execute:
-            self.logger.warning("** EXECUTE is true. Will make changes to data! **")
-        else:
-            self.logger.info("DRY RUN. No data will be changed")
 
         # Queues
         self.observation_queue = queue.Queue()
@@ -124,28 +31,9 @@ class GenericObservationProcessor:
         # Threads
         self.consumer_threads = []
 
-        # Web service
-        self.web_server = None
-        self.web_server_thread = None
-
         # Locks
         # This is used to lock the queue while we refresh the list of observations to process
         self.observation_queue_lock = threading.Lock()
-
-        # Create pools
-        self.logger.info("Setting up database pools...")
-        self.mro_metadata_db_pool = psycopg2.pool.ThreadedConnectionPool(2, 10,
-                                                                         user=self.mro_metadata_db_user,
-                                                                         password=self.mro_metadata_db_pass,
-                                                                         host=self.mro_metadata_db_host,
-                                                                         port=self.mro_metadata_db_port,
-                                                                         database=self.mro_metadata_db_name)
-        self.ngas_db_pool = psycopg2.pool.ThreadedConnectionPool(2, 10,
-                                                                 user=self.ngas_db_user,
-                                                                 password=self.ngas_db_pass,
-                                                                 host=self.ngas_db_host,
-                                                                 port=self.ngas_db_port,
-                                                                 database=self.ngas_db_name)
 
     def stage_files(self, obs_id: int, file_list: list, retry_attempts: int = 3, backoff_seconds: int = 30) -> bool:
         # The passed in list of files should be Pawsey DMF paths.
@@ -201,48 +89,12 @@ class GenericObservationProcessor:
                                    f"times and {t2 - t1:.2f} seconds.")
         return False
 
-    def check_root_working_directory_exists(self) -> bool:
-        if self.working_path:
-            self.logger.info(f"Checking and cleaning working path {self.working_path}...")
-            if not os.path.exists(self.working_path):
-                self.logger.error(f"Working path specified in configuration {self.working_path} is not valid.")
-                exit(-1)
-            else:
-                return True
-        else:
-            raise Exception("check_root_working_directory_exists(): working_path is not defined in the config "
-                            "file.")
-
     def get_working_filename_and_path(self, obs_id: int, filename: str) -> str:
         # will return working_path/obs_id/filename
         if self.working_path:
             return os.path.join(self.working_path, str(obs_id), filename)
         else:
             raise Exception("get_working_filename_and_path(): working_path is not defined in the config "
-                            "file.")
-
-    def cleanup_root_working_directory(self):
-        if self.working_path:
-            path_to_clean = os.path.join(self.working_path, "*")
-
-            if os.path.exists(self.working_path):
-                self.logger.debug(f"Removing contents of {self.working_path}...")
-
-                # Remove any files/folders in there
-                files = glob.glob(path_to_clean)
-
-                for f in files:
-                    if os.path.isfile(f):
-                        self.logger.debug(f"Deleting file {f}")
-                        os.remove(f)
-                    else:
-                        self.logger.debug(f"Deleting folder {f}")
-                        shutil.rmtree(f)
-            else:
-                # Nothing to do
-                pass
-        else:
-            raise Exception("cleanup_root_working_directory(): working_path is not defined in the config "
                             "file.")
 
     def prepare_observation_working_directory(self, obs_id: int):
@@ -279,21 +131,6 @@ class GenericObservationProcessor:
             raise Exception("cleanup_observation_working_directory(): working_path is not defined in the config "
                             "file.")
 
-    def log_info(self, obs_id: int, message: str):
-        self.logger.info(f"{obs_id}: {message}")
-
-    def log_warning(self, obs_id: int, message: str):
-        self.logger.warning(f"{obs_id}: {message}")
-
-    def log_debug(self, obs_id: int, message: str):
-        self.logger.debug(f"{obs_id}: {message}")
-
-    def log_error(self, obs_id: int, message: str):
-        self.logger.error(f"{obs_id}: {message}")
-
-    def log_exception(self, obs_id: int, message: str):
-        self.logger.exception(f"{obs_id}: {message}")
-
     #
     # Virtual methods
     #
@@ -321,9 +158,6 @@ class GenericObservationProcessor:
         # This is to be supplied by the inheritor.
         # If implements_per_item_processing == 0 then just 'pass'
         raise NotImplementedError()
-
-    def web_server_loop(self, web_server):
-        web_server.serve_forever()
 
     def get_status(self) -> str:
         status = f"Running {self.concurrent_observations} observations. " \
@@ -368,16 +202,6 @@ class GenericObservationProcessor:
 
     # main loop
     def main_loop(self):
-        # Create and start web server
-        self.logger.info(f"Starting http server on port {self.web_service_port}...")
-        self.web_server = ProcessorHTTPServer(('', int(self.web_service_port)), ProcessorHTTPGetHandler)
-        self.web_server.context = self
-        self.web_server_thread = threading.Thread(name='webserver',
-                                                  target=self.web_server_loop,
-                                                  args=(self.web_server,))
-        self.web_server_thread.setDaemon(True)
-        self.web_server_thread.start()
-
         # Get observations to process
         observation_list = []
 
@@ -486,17 +310,6 @@ class GenericObservationProcessor:
 
         return True
 
-    def start(self):
-        self.logger.info(f"{self.name} started")
-
-        # Setup main loop
-        self.main_loop()
-
-        # Stop everything
-        self.stop()
-
-        self.logger.info(f"{self.name} stopped")
-
     def stop(self):
         self.terminate = True
 
@@ -541,11 +354,3 @@ class GenericObservationProcessor:
             self.logger.info(f"Observations processed successfully: {self.stats_observations_processed_successfully}")
             self.logger.info(f"Observations failed with errors    : {self.stats_observations_failed_with_errors}")
             self.terminated = True
-
-    def signal_handler(self, sig, frame):
-        if self.logger:
-            self.logger.info("Interrupted!")
-        else:
-            print("Interrupted!")
-
-        self.stop()

@@ -1,5 +1,6 @@
 from processor.utils.database import run_sql_get_many_rows, run_sql_get_one_row
 from enum import Enum
+import subprocess
 
 
 class MWADataQualityFlags(Enum):
@@ -206,3 +207,20 @@ def get_vcs_raw_data_files_filenames(database_pool, obs_id: int,
         return [r['filename'] for r in results]
     else:
         return []
+
+
+def invalidate_metadata_cache(obsid):
+    wgetcmd = f'wget "http://ws.mwatelescope.org/metadata/invalcache?obs_id={obsid}" -O /dev/null '
+
+    try:
+        proc = subprocess.Popen(wgetcmd,
+                                stdout=subprocess.PIPE,
+                                shell=True,
+                                close_fds=True)
+
+        out, err = proc.communicate()
+        if proc.returncode != 0:
+            raise Exception(f"Could not invalidate metadata cache {str(out)} {str(err)}")
+
+    except Exception as e:
+        raise Exception(f"Could not invalidate metadata cache {e}")
