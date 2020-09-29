@@ -4,6 +4,7 @@ import os
 import queue
 from threading import Event
 import time
+from psycopg2.errors import UniqueViolation
 from configparser import ConfigParser
 from processor.core.generic_processor import GenericProcessor
 from processor.utils.mwa_metadata import invalidate_metadata_cache, MWAFileTypeFlags
@@ -92,6 +93,10 @@ class FlagArchiver(GenericProcessor):
                                  self.ngas_host, self.ngas_port, self.ngas_user, self.ngas_pass,
                                  obs_id, item, MWAFileTypeFlags.FLAG_FILE)
 
+                    success = True
+
+                except UniqueViolation as unique_exception:
+                    self.log_warning(obs_id, f"Ignoring... Flags already archived for this obs_id. Full error: {str(unique_exception)}")
                     success = True
 
                 except Exception as archive_exception:
