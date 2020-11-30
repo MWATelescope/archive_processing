@@ -5,11 +5,11 @@ def get_latest_ngas_gpubox_paths(database_pool, obs_id: int) -> list:
     sql = """SELECT distinct on (file_id) 
                     mount_point || '/' || file_name as path,  
                     ngas_hosts.ip_address as address 
-             FROM ngas_files inner join ngas_disks 
-                  ON ngas_disks.disk_id = ngas_files.disk_id 
-             INNER JOIN ngas_hosts on ngas_disks.host_id = ngas_hosts.host_id 
+             FROM ngas_files inner join mwa_asvo_disks 
+                  ON mwa_asvo_disks.disk_id = ngas_files.disk_id 
+             INNER JOIN ngas_hosts on mwa_asvo_disks.host_id = ngas_hosts.host_id 
              WHERE file_id similar to %s 
-               AND ngas_disks.disk_id in 
+               AND mwa_asvo_disks.disk_id in 
                    ('35ecaa0a7c65795635087af61c3ce903', 
                     '54ab8af6c805f956c804ee1e4de92ca4', 
                     '921d259d7bc2a0ae7d9a532bccd049c7', 
@@ -29,11 +29,11 @@ def get_latest_ngas_file_path_and_address_for_filename(database_pool, file_id: s
     sql =  """SELECT distinct on (file_id) 
                      mount_point || '/' || file_name as path, 
                      ngas_hosts.ip_address as address 
-              FROM ngas_files inner join ngas_disks 
-                   on ngas_disks.disk_id = ngas_files.disk_id 
-              inner join ngas_hosts on ngas_disks.host_id = ngas_hosts.host_id 
+              FROM ngas_files inner join mwa_asvo_disks 
+                   on mwa_asvo_disks.disk_id = ngas_files.disk_id 
+              inner join ngas_hosts on mwa_asvo_disks.host_id = ngas_hosts.host_id 
               WHERE file_id = %s 
-                and ngas_disks.disk_id in 
+                and mwa_asvo_disks.disk_id in 
                     ('35ecaa0a7c65795635087af61c3ce903', 
                      '54ab8af6c805f956c804ee1e4de92ca4', 
                      '921d259d7bc2a0ae7d9a532bccd049c7', 
@@ -53,11 +53,11 @@ def get_all_ngas_file_path_and_address_for_obs_id(database_pool, obs_id: int):
     sql = """SELECT  
                      mount_point || '/' || file_name as path, 
                      ngas_hosts.ip_address as address 
-              FROM ngas_files inner join ngas_disks 
-                   on ngas_disks.disk_id = ngas_files.disk_id 
-              inner join ngas_hosts on ngas_disks.host_id = ngas_hosts.host_id 
+              FROM ngas_files inner join mwa_asvo_disks 
+                   on mwa_asvo_disks.disk_id = ngas_files.disk_id 
+              inner join ngas_hosts on mwa_asvo_disks.host_id = ngas_hosts.host_id 
               WHERE file_id like %s 
-                and ngas_disks.disk_id in 
+                and mwa_asvo_disks.disk_id in 
                     ('35ecaa0a7c65795635087af61c3ce903', 
                      '54ab8af6c805f956c804ee1e4de92ca4', 
                      '921d259d7bc2a0ae7d9a532bccd049c7', 
@@ -77,11 +77,11 @@ def get_all_ngas_file_path_and_address_for_filename(database_pool, file_id: str)
     sql = """SELECT  
                      mount_point || '/' || file_name as path, 
                      ngas_hosts.ip_address as address 
-              FROM ngas_files inner join ngas_disks 
-                   on ngas_disks.disk_id = ngas_files.disk_id 
-              inner join ngas_hosts on ngas_disks.host_id = ngas_hosts.host_id 
+              FROM ngas_files inner join mwa_asvo_disks 
+                   on mwa_asvo_disks.disk_id = ngas_files.disk_id 
+              inner join ngas_hosts on mwa_asvo_disks.host_id = ngas_hosts.host_id 
               WHERE file_id = %s 
-                and ngas_disks.disk_id in 
+                and mwa_asvo_disks.disk_id in 
                     ('35ecaa0a7c65795635087af61c3ce903', 
                      '54ab8af6c805f956c804ee1e4de92ca4', 
                      '921d259d7bc2a0ae7d9a532bccd049c7', 
@@ -101,11 +101,11 @@ def get_latest_ngas_file_path_and_address_for_filename_list(database_pool, file_
     sql = """SELECT distinct on (file_id) 
                      mount_point || '/' || file_name as path, 
                      ngas_hosts.ip_address as address 
-              FROM ngas_files inner join ngas_disks 
-                   on ngas_disks.disk_id = ngas_files.disk_id 
-              inner join ngas_hosts on ngas_disks.host_id = ngas_hosts.host_id 
+              FROM ngas_files inner join mwa_asvo_disks 
+                   on mwa_asvo_disks.disk_id = ngas_files.disk_id 
+              inner join ngas_hosts on mwa_asvo_disks.host_id = ngas_hosts.host_id 
               WHERE file_id = any(%s) 
-                and ngas_disks.disk_id in 
+                and mwa_asvo_disks.disk_id in 
                     ('35ecaa0a7c65795635087af61c3ce903', 
                      '54ab8af6c805f956c804ee1e4de92ca4', 
                      '921d259d7bc2a0ae7d9a532bccd049c7', 
@@ -126,11 +126,11 @@ def get_latest_ngas_file_path_and_address_for_filename_list(database_pool, file_
 def get_all_ngas_file_path_and_address_for_filename_list(database_pool, file_id_list: list) -> list:
     sql = """SELECT  mount_point || '/' || file_name as path, 
                      ngas_hosts.ip_address as address
-              FROM ngas_files inner join ngas_disks 
-                   on ngas_disks.disk_id = ngas_files.disk_id 
-              inner join ngas_hosts on ngas_disks.host_id = ngas_hosts.host_id 
+              FROM ngas_files inner join mwa_asvo_disks 
+                   on mwa_asvo_disks.disk_id = ngas_files.disk_id 
+              inner join ngas_hosts on mwa_asvo_disks.host_id = ngas_hosts.host_id 
               WHERE file_id = any(%s) 
-                and ngas_disks.disk_id in 
+                and mwa_asvo_disks.disk_id in 
                     ('35ecaa0a7c65795635087af61c3ce903', 
                      '54ab8af6c805f956c804ee1e4de92ca4', 
                      '921d259d7bc2a0ae7d9a532bccd049c7', 
