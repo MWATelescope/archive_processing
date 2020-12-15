@@ -196,7 +196,10 @@ class DeleteVCSRawProcessor(GenericObservationProcessor):
 
             # Now update data quality flag to Good
             try:
-                update_mwa_setting_dataquality(self.mro_metadata_db_pool, observation.obs_id, MWADataQualityFlags.GOOD.value)
+                if self.execute:
+                    update_mwa_setting_dataquality(self.mro_metadata_db_pool, observation.obs_id, MWADataQualityFlags.GOOD.value)
+                else:
+                    self.log_info(observation.obs_id, f"Would have update_mwa_setting_dataquality setting quality to GOOD")
             except:
                 self.log_exception(observation.obs_id, f"Error in update_mwa_setting_dataquality setting quality to GOOD")
                 return False
