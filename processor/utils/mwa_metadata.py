@@ -77,7 +77,12 @@ def update_mwa_setting_dataquality(database_pool, obsid: int, dataquality: MWADa
     try:
         con = database_pool.getconn()
         cursor = con.cursor()
-        cursor.execute(("UPDATE mwa_setting SET dataquality = %s WHERE starttime = %s"), (str(dataquality.value), obsid))
+
+        processed = False
+        if dataquality.value == MWADataQualityFlags.PROCESSED.value:
+            processed = True
+
+        cursor.execute(("UPDATE mwa_setting SET dataquality = %s, processed = %s WHERE starttime = %s"), (str(dataquality.value), processed, obsid))
 
     except Exception as e:
         if con:
@@ -199,6 +204,28 @@ def get_vcs_raw_data_files_filenames(database_pool, obs_id: int,
               ORDER BY filename"""
 
     results = run_sql_get_many_rows(database_pool, sql, (MWAFileTypeFlags.VOLTAGE_RAW_FILE.value,
+                                                         int(obs_id),
+                                                         deleted,
+                                                         remote_archived, ))
+
+    if results:
+        return [r['filename'] for r in results]
+    else:
+        return []
+
+
+def get_vcs_tar_ics_data_files_filenames(database_pool, obs_id: int,
+                                         deleted: bool = False, remote_archived: bool = True) -> list:
+    sql = f"""SELECT filename 
+              FROM data_files 
+              WHERE (filetype = %s OR filetype = %s) 
+              AND observation_num = %s
+              AND deleted = %s
+              AND remote_archived = %s
+              ORDER BY filename"""
+
+    results = run_sql_get_many_rows(database_pool, sql, (MWAFileTypeFlags.VOLTAGE_RECOMBINED_ARCHIVE_FILE.value,
+                                                         MWAFileTypeFlags.VOLTAGE_ICS_FILE.value,
                                                          int(obs_id),
                                                          deleted,
                                                          remote_archived, ))

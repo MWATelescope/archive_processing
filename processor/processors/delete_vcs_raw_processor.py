@@ -3,7 +3,7 @@ import os
 from configparser import ConfigParser
 from processor.core.generic_observation_processor import GenericObservationProcessor
 from processor.core.observation import Observation
-from processor.utils.mwa_metadata import get_recombined_observations_with_list, get_vcs_raw_data_files_filenames, set_mwa_data_files_deleted_flag
+from processor.utils.mwa_metadata import get_recombined_observations_with_list, set_mwa_data_files_deleted_flag, update_mwa_setting_dataquality, get_vcs_tar_ics_data_files_filenames, MWADataQualityFlags
 from processor.utils.ngas_metadata import get_all_ngas_file_path_and_address_for_filename_list, delete_ngas_files
 
 
@@ -57,16 +57,16 @@ class DeleteVCSRawProcessor(GenericObservationProcessor):
 
         # Get MWA file list
         try:
-            self.mwa_file_list = get_vcs_raw_data_files_filenames(self.mro_metadata_db_pool,
-                                                                  observation.obs_id,
-                                                                  deleted=False,
-                                                                  remote_archived=True)
+            self.mwa_file_list = get_vcs_tar_ics_data_files_filenames(self.mro_metadata_db_pool,
+                                                                      observation.obs_id,
+                                                                      deleted=False,
+                                                                      remote_archived=True)
         except Exception:
-            self.log_exception(observation.obs_id, "Could not get raw mwa data files for obs_id.")
+            self.log_exception(observation.obs_id, "Could not get tar & ics mwa data files for obs_id.")
             return []
 
         if len(self.mwa_file_list) == 0:
-            self.log_info(observation.obs_id, f"No raw data files found in mwa database")
+            self.log_info(observation.obs_id, f"No tar and ics data files found in mwa database")
             return []
 
         # Get NGAS file list, based on the mwa metadata list
@@ -192,6 +192,13 @@ class DeleteVCSRawProcessor(GenericObservationProcessor):
                         return False
             except:
                 self.log_exception(observation.obs_id, f"Error deleting files from ngas database")
+                return False
+
+            # Now update data quality flag to Good
+            try:
+                update_mwa_setting_dataquality(self.mro_metadata_db_pool, observation.obs_id, MWADataQualityFlags.GOOD.value)
+            except:
+                self.log_exception(observation.obs_id, f"Error in update_mwa_setting_dataquality setting quality to GOOD")
                 return False
         else:
             self.log_warning(observation.obs_id, f"Not all items for this observation processed successfully. "
