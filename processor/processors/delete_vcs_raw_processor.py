@@ -151,7 +151,7 @@ class DeleteVCSRawProcessor(GenericObservationProcessor):
                 self.log_exception(observation.obs_id, f"Error deleting files from ngas database")
                 return False
 
-            # Update metadata database to set deleted=True for all files deleted
+            # Update metadata database to set data_files.deleted=True for all files deleted
             try:
                 # Postgres limits us to 32K and it would make sense to do smaller batches here anyway
                 # Especially for VCS observations with >100K files to update

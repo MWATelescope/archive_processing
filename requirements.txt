@@ -1,2 +1,3 @@
 astropy
 psycopg2
+requests
