@@ -16,7 +16,9 @@ class Observation:
 
     def process(self):
         # now get the list of items to process
-        self.observation_item_list = self.processor.get_observation_item_list(self)
+        self.observation_item_list = self.processor.get_observation_item_list(
+            self
+        )
         self.num_items_to_process = len(self.observation_item_list)
 
         # Enqueue items into the queue
@@ -24,15 +26,20 @@ class Observation:
             self.observation_item_queue.put(item)
 
         # process each item
-        self.processor.logger.info(f"{self.processor.concurrent_items} concurrent items will be processed.")
+        self.processor.logger.info(
+            f"{self.processor.concurrent_items} concurrent items will be"
+            " processed."
+        )
 
         if self.observation_item_queue.qsize() > 0:
             parent_name = threading.current_thread().name
 
             for thread_id in range(self.processor.concurrent_items):
-                new_thread = threading.Thread(name=f"{parent_name}_i{thread_id + 1}",
-                                              target=self.observation_item_consumer,
-                                              args=(self.obs_id,))
+                new_thread = threading.Thread(
+                    name=f"{parent_name}_i{thread_id + 1}",
+                    target=self.observation_item_consumer,
+                    args=(self.obs_id,),
+                )
                 self.consumer_threads.append(new_thread)
 
             # Start all threads
@@ -54,7 +61,7 @@ class Observation:
 
     def observation_item_consumer(self, obs_id: int) -> bool:
         try:
-            self.processor.log_debug(obs_id, f"Task Started")
+            self.processor.log_debug(obs_id, "Task Started")
 
             while self.processor.terminate is False:
                 # Get next item
@@ -69,7 +76,9 @@ class Observation:
                         self.successful_observation_items.append(item)
 
                 except Exception:
-                    self.processor.log_exception(obs_id, f"{item}: Exception in process_one_item()")
+                    self.processor.log_exception(
+                        obs_id, f"{item}: Exception in process_one_item()"
+                    )
                 finally:
                     # Tell queue that job is done
                     self.observation_item_queue.task_done()

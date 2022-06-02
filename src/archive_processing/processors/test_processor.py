@@ -3,15 +3,21 @@ import os
 import random
 import time
 from configparser import ConfigParser
-from processor.core.observation import Observation
-from processor.core.generic_observation_processor import GenericObservationProcessor
-from processor.utils.mwa_metadata import MWAModeFlags, MWADataQualityFlags
-from processor.utils.ngas_metadata import get_all_ngas_file_path_and_address_for_obs_id
-from processor.utils.database import run_sql_get_many_rows
+from archive_processing.core.observation import Observation
+from archive_processing.core.generic_observation_processor import (
+    GenericObservationProcessor,
+)
+from archive_processing.utils.mwa_metadata import (
+    MWAModeFlags,
+    MWADataQualityFlags,
+)
+from archive_processing.utils.database import run_sql_get_many_rows
 
 
 class TestProcessor(GenericObservationProcessor):
-    def __init__(self, processor_name: str, config: ConfigParser, execute: bool):
+    def __init__(
+        self, processor_name: str, config: ConfigParser, execute: bool
+    ):
         super().__init__(processor_name, config, execute)
         self.observation_item_list = []
 
@@ -28,12 +34,16 @@ class TestProcessor(GenericObservationProcessor):
                           AND starttime < %s 
                           ORDER BY starttime DESC LIMIT 2"""
 
-        params = (MWAModeFlags.HW_LFILES.value, MWADataQualityFlags.GOOD.value, 1270000000)
+        params = (
+            MWAModeFlags.HW_LFILES.value,
+            MWADataQualityFlags.GOOD.value,
+            1270000000,
+        )
 
         results = run_sql_get_many_rows(self.mro_metadata_db_pool, sql, params)
 
         if results:
-            observation_list = [r['obs_id'] for r in results]
+            observation_list = [r["obs_id"] for r in results]
 
         self.logger.info(f"{len(observation_list)} observations to process.")
 
@@ -41,26 +51,40 @@ class TestProcessor(GenericObservationProcessor):
 
     def long_running_task(self, observation: Observation, item: str = None):
         if item:
-            self.log_info(observation.obs_id, f"{item}: Running long running task ({observation.observation_item_queue.qsize()} "
-                                              f"remaining in queue)")
+            self.log_info(
+                observation.obs_id,
+                f"{item}: Running long running task"
+                f" ({observation.observation_item_queue.qsize()} remaining in"
+                " queue)",
+            )
         else:
             self.log_info(observation.obs_id, "Running long running task")
 
         time.sleep(random.randint(1, 4))
 
         if item:
-            self.log_info(observation.obs_id, f"{item}: Long running task complete.")
+            self.log_info(
+                observation.obs_id, f"{item}: Long running task complete."
+            )
         else:
             self.log_info(observation.obs_id, "Long running task complete.")
 
     def process_one_observation(self, observation: Observation) -> bool:
-        self.log_info(observation.obs_id, f"Starting... ({self.observation_queue.qsize()} remaining in queue)")
+        self.log_info(
+            observation.obs_id,
+            f"Starting... ({self.observation_queue.qsize()} remaining in"
+            " queue)",
+        )
 
         self.log_info(observation.obs_id, f"Getting list of files to stage...")
 
-        staging_file_list = get_all_ngas_file_path_and_address_for_obs_id(self.ngas_db_pool, observation.obs_id)
+        staging_file_list = get_all_ngas_file_path_and_address_for_obs_id(
+            self.ngas_db_pool, observation.obs_id
+        )
 
-        self.log_info(observation.obs_id, f"{len(staging_file_list)} files to stage.")
+        self.log_info(
+            observation.obs_id, f"{len(staging_file_list)} files to stage."
+        )
 
         if self.stage_files(observation.obs_id, staging_file_list):
             self.log_info(observation.obs_id, f"Staging complete.")
@@ -75,12 +99,18 @@ class TestProcessor(GenericObservationProcessor):
             else:
                 return True
         else:
-            self.log_info(observation.obs_id, f"Cannot stage files. Skipping this observation.")
+            self.log_info(
+                observation.obs_id,
+                f"Cannot stage files. Skipping this observation.",
+            )
             return False
 
     def get_observation_item_list(self, observation: Observation) -> list:
         self.log_info(observation.obs_id, f"Getting list of items...")
-        self.log_info(observation.obs_id, f"{len(self.observation_item_list)} items to process.")
+        self.log_info(
+            observation.obs_id,
+            f"{len(self.observation_item_list)} items to process.",
+        )
         return self.observation_item_list
 
     def process_one_item(self, observation: Observation, item: str) -> bool:
@@ -89,7 +119,9 @@ class TestProcessor(GenericObservationProcessor):
 
     def end_of_observation(self, observation: Observation) -> bool:
         # This file was successfully processed
-        self.log_info(observation.obs_id, f"Finalising observation starting...")
+        self.log_info(
+            observation.obs_id, f"Finalising observation starting..."
+        )
         time.sleep(random.randint(1, 3))
         self.log_info(observation.obs_id, f"Finalising observation complete.")
         return True
@@ -100,8 +132,8 @@ def run():
 
     # Get command line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, action='store')
-    parser.add_argument('--execute', action='store_true')
+    parser.add_argument("--cfg", type=str, action="store")
+    parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
 
     cfg_file = None
@@ -110,7 +142,10 @@ def run():
         cfg_file = args.cfg
 
         if not os.path.exists(cfg_file):
-            print("Error: argument --cfg must point to a configuration file. Exiting.")
+            print(
+                "Error: argument --cfg must point to a configuration file."
+                " Exiting."
+            )
             exit(-1)
     else:
         print("Error: argument --cfg is required. Exiting.")
