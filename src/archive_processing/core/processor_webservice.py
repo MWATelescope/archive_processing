@@ -12,7 +12,6 @@ class ProcessorHTTPServer(HTTPServer):
 
 
 class ProcessorHTTPGetHandler(BaseHTTPRequestHandler):
-
     def do_GET(self):
         # This is the path (e.g. /status) but with no parameters
         parsed_path = urlparse(self.path.lower()).path
@@ -45,7 +44,9 @@ class ProcessorHTTPGetHandler(BaseHTTPRequestHandler):
             else:
                 self.send_response(400)
                 self.end_headers()
-                self.wfile.write(f"Unknown command {parsed_path}".encode('utf-8'))
+                self.wfile.write(
+                    f"Unknown command {parsed_path}".encode("utf-8")
+                )
 
         except Exception as e:
             self.server.context.logger.error(f"GET: Error {str(e)}")

@@ -1,70 +1,65 @@
-from psycopg2.extras import RealDictCursor
+import psycopg_pool
+from psycopg.rows import dict_row
 
 
-def run_sql_get_one_row(database_pool, sql: str, args):
-    conn = None
+def run_sql_get_one_row(
+    database_pool: psycopg_pool.ConnectionPool, sql: str, args
+):
     cur = None
+    record = None
 
     try:
         if database_pool:
-            conn = database_pool.getconn()
+            database_pool.check()
 
-            cur = conn.cursor(cursor_factory=RealDictCursor)
+            with database_pool.connection() as conn:
+                cur = conn.cursor(row_factory=dict_row)
 
-            if args is None:
-                cur.execute(sql)
-            else:
-                cur.execute(sql, args)
+                if args is None:
+                    cur.execute(sql)
+                else:
+                    cur.execute(sql, args)
 
-            record = cur.fetchone()
-            conn.commit()
+                record = cur.fetchone()
         else:
             raise Exception("database pool is not initialised")
 
     except Exception as error:
-        if conn:
-            conn.rollback()
         raise error
 
     finally:
         if cur:
             cur.close()
-        if conn:
-            database_pool.putconn(conn)
 
     return record
 
 
-def run_sql_get_many_rows(database_pool, sql: str, args) -> list:
-    conn = None
+def run_sql_get_many_rows(
+    database_pool: psycopg_pool.ConnectionPool, sql: str, args
+) -> list:
+    records = []
     cur = None
 
     try:
         if database_pool:
-            conn = database_pool.getconn()
+            database_pool.check()
 
-            cur = conn.cursor(cursor_factory=RealDictCursor)
+            with database_pool.connection() as conn:
+                cur = conn.cursor(row_factory=dict_row)
 
-            if args is None:
-                cur.execute(sql)
-            else:
-                cur.execute(sql, args)
+                if args is None:
+                    cur.execute(sql)
+                else:
+                    cur.execute(sql, args)
 
-            records = cur.fetchall()
-
-            conn.commit()
-
+                records = cur.fetchall()
         else:
             raise Exception("database pool is not initialised")
 
     except Exception as error:
-        if conn:
-            conn.rollback()
         raise error
 
     finally:
         if cur:
             cur.close()
-        if conn:
-            database_pool.putconn(conn)
     return records

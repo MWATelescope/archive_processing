@@ -1,7 +1,7 @@
 import glob
 import logging.handlers
 import os
-import psycopg2.pool
+from psycopg_pool import ConnectionPool
 import shutil
 import signal
 import threading
@@ -138,24 +138,16 @@ class GenericProcessor:
         # Create pools if needed
         if self.mro_metadata_db_host is not None:
             self.logger.info("Setting up database pools...")
-            self.mro_metadata_db_pool = psycopg2.pool.ThreadedConnectionPool(
-                2,
-                10,
-                user=self.mro_metadata_db_user,
-                password=self.mro_metadata_db_pass,
-                host=self.mro_metadata_db_host,
-                port=self.mro_metadata_db_port,
-                database=self.mro_metadata_db_name,
-            )
-        if self.ngas_db_host is not None:
-            self.ngas_db_pool = psycopg2.pool.ThreadedConnectionPool(
-                2,
-                10,
-                user=self.ngas_db_user,
-                password=self.ngas_db_pass,
-                host=self.ngas_db_host,
-                port=self.ngas_db_port,
-                database=self.ngas_db_name,
+            self.mro_metadata_db_pool = ConnectionPool(
+                min_size=2,
+                max_size=10,
+                conninfo=(
+                    f"postgresql://{self.mro_metadata_db_user}:"
+                    f"{self.mro_metadata_db_pass}@"
+                    f"{self.mro_metadata_db_host}:"
+                    f"{self.mro_metadata_db_port}/"
+                    f"{self.mro_metadata_db_name}"
+                ),
             )
 
     def check_root_working_directory_exists(self) -> bool:

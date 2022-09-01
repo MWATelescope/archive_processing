@@ -6,7 +6,12 @@ cfg/test_processor*.cfg
 cfg/delete_processor.cfg
 cfg/delete_vcs_raw_processor.cfg
 cfg/flag_archiver.cfg
+cfg/delete_request_processor.cfg
 dist/
 env/
 logs/
 wheels/
+__pycache__
+*.log
+.vscode
+.python-version
