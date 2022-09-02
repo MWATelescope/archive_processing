@@ -4,11 +4,11 @@ import queue
 import threading
 import time
 from configparser import ConfigParser
+from archive_processing.core.observation import Observation
 from archive_processing.core.generic_processor import GenericProcessor
 from archive_processing.utils.mwa_metadata import (
     get_delete_requests,
     get_delete_request_observations,
-    get_obs_data_files_filenames_except_ppds,
 )
 
 
@@ -25,21 +25,24 @@ class DeleteRequestProcessor(GenericProcessor):
     ):
         super().__init__(processor_name, config, execute)
 
+        # Settings
+        self.s3_delete_batch_size = 2
+
         # Queues
         self.observation_queue = queue.Queue()
 
         # Stats / info
-        self.stats_delete_request_number = 0
         self.stats_delete_requests_to_process = 0
-        self.stats_delete_requests_processed_good = 0
-        self.stats_delete_requests_failed_errors = 0
+        self.stats_delete_request_attempted = 0
+        self.stats_delete_requests_successful = 0
+        self.stats_delete_requests_failed = 0
 
         self.stats_obs_to_process = 0
-        self.stats_obs_processed_good = 0
-        self.stats_obs_failed_errors = 0
+        self.stats_obs_attempted = 0
+        self.stats_obs_successful = 0
+        self.stats_obs_failed = 0
 
         self.current_delete_request = None
-        self.current_observations = []
 
         # Threads
         self.consumer_threads = []
@@ -50,6 +53,7 @@ class DeleteRequestProcessor(GenericProcessor):
         # This is used to lock the queue while we refresh the list of
         # observations to process
         self.observation_queue_lock = threading.Lock()
+        self.observation_stats_lock = threading.Lock()
 
     def get_delete_request_list(self) -> list:
         return get_delete_requests(self.mro_metadata_db_pool)
@@ -59,32 +63,18 @@ class DeleteRequestProcessor(GenericProcessor):
             self.mro_metadata_db_pool, delete_request_id
         )
 
-    def get_observation_file_list(self, obs_id) -> list:
-        return get_obs_data_files_filenames_except_ppds(
-            self.mro_metadata_db_pool, obs_id
-        )
-
-    def process_observation(self, obs_id: int) -> bool:
-        self.logger.info("Processing: obs_id")
-        files = get_obs_data_files_filenames_except_ppds(
-            self.mro_metadata_db_pool, obs_id
-        )
-
-        for filename in files:
-            self.log_info(obs_id, f"File: {filename}")
-        return True
-
-    def end_of_observation(self, obs_id: int) -> bool:
-        self.logger.info(
-            f"Update observation {obs_id} with deleted_timestamp=now()"
-        )
-        return True
-
     def get_status(self) -> str:
         status = (
-            "Delete requests remaining:"
-            f" {self.delete_request_queue.qsize()}/"
-            f"{self.stats_delete_requests_to_process}"
+            "Delete requests: "
+            f"{self.stats_delete_requests_to_process} "
+            f"Attempted: {self.stats_delete_request_attempted} "
+            f"Success: {self.stats_delete_requests_successful} "
+            f"Failed: {self.stats_delete_requests_failed}; "
+            "Observations: "
+            f"{self.stats_obs_to_process} "
+            f"Attempted: {self.stats_obs_attempted} "
+            f"Success: {self.stats_obs_successful} "
+            f"Failed: {self.stats_obs_failed}"
         )
 
         return status
@@ -99,13 +89,17 @@ class DeleteRequestProcessor(GenericProcessor):
         except Exception:
             self.logger.exception("Exception in get_delete_request_list()")
 
+        delete_request_list.append(9)
+        delete_request_list.append(9)
+
         self.stats_delete_requests_to_process = len(delete_request_list)
 
         # Do we have any delete requests to process?
         for delete_request_id in delete_request_list:
-            self.stats_delete_request_number += 1
+            self.stats_delete_request_attempted += 1
+
             self.logger.info(
-                f"Delete Request {self.stats_delete_request_number} of"
+                f"Delete Request {self.stats_delete_request_attempted} of"
                 f" {self.stats_delete_requests_to_process}: Starting..."
             )
 
@@ -117,18 +111,36 @@ class DeleteRequestProcessor(GenericProcessor):
                     f"Exception in get_observation_list({delete_request_id})"
                 )
 
-            self.stats_observations_to_process = len(observation_list)
+            observation_list.append(2000000064)
+            observation_list.append(2000000128)
+            observation_list.append(2000000192)
+            observation_list.append(2000000256)
+            observation_list.append(2000000320)
+            observation_list.append(2000000384)
+
+            obs_to_process = len(observation_list)
+
+            self.observation_stats_lock.acquire(timeout=30)
+            self.stats_obs_to_process += obs_to_process
+            self.observation_stats_lock.release()
 
             self.logger.info(
-                f"Delete Request {self.stats_delete_request_number} of"
+                f"Delete Request {self.stats_delete_request_attempted} of"
                 f" {self.stats_delete_requests_to_process}:"
-                f" {self.stats_observations_to_process} observations to"
+                f" {obs_to_process} observations to"
                 " process."
             )
 
             # Enqueue the observations
             for obs_id in observation_list:
-                self.observation_queue.put(obs_id)
+                new_observation: Observation = Observation(
+                    obs_id,
+                    self.logger,
+                    self.mro_metadata_db_pool,
+                    self.s3_delete_batch_size,
+                    self.execute,
+                )
+                self.observation_queue.put(new_observation)
 
             # Do processing
             # Kick off x number of consumers of observations
@@ -147,10 +159,21 @@ class DeleteRequestProcessor(GenericProcessor):
             # Wait for all consumers to finish
             self.observation_queue.join()
 
+            # clear consumer threads
+            self.consumer_threads = []
+
             self.logger.debug(
-                f"Delete Request {self.stats_delete_request_number} of"
+                f"Delete Request {self.stats_delete_request_attempted} of"
                 f" {self.stats_delete_requests_to_process}: Complete."
             )
+
+            if (
+                self.stats_obs_failed == 0
+                or self.stats_obs_to_process == self.stats_obs_attempted
+            ):
+                self.stats_delete_requests_successful += 1
+            else:
+                self.stats_delete_requests_failed += 1
 
             # Cancel the consumers- these will be idle now anyway
             for thread in self.consumer_threads:
@@ -158,6 +181,9 @@ class DeleteRequestProcessor(GenericProcessor):
 
         # Stopped
         self.logger.debug("main() stopped. ")
+
+        # Summarise!
+        self.logger.info(self.get_status())
 
         # Uncomment this if there are loose threads!
         for thread in threading.enumerate():
@@ -178,47 +204,47 @@ class DeleteRequestProcessor(GenericProcessor):
                 self.observation_queue_lock.acquire(timeout=30)
 
                 # Get next item, now that the lock is released
-                obs_id = self.observation_queue.get_nowait()
+                observation: Observation = self.observation_queue.get_nowait()
 
                 # Release lock
                 self.observation_queue_lock.release()
 
-                # Keep track of what we are working on
-                self.current_observations.append(obs_id)
+                self.observation_stats_lock.acquire(timeout=30)
+                self.stats_obs_attempted += 1
+                self.observation_stats_lock.release()
 
-                self.log_info(obs_id, "Started")
+                self.log_info(observation.obs_id, "Started")
 
                 # process the observation
-                if self.process_observation(obs_id):
-                    # Now finalise the observation, if need be
-                    if self.end_of_observation(obs_id):
-                        self.stats_obs_processed_good = (
-                            self.stats_obs_processed_good + 1
-                        )
-                    else:
-                        self.stats_obs_failed_errors = (
-                            self.stats_obs_failed_errors + 1
-                        )
+                if observation.delete():
+                    self.observation_stats_lock.acquire(timeout=30)
+                    self.stats_obs_successful += 1
+                    self.observation_stats_lock.release()
                 else:
-                    self.stats_obs_failed_errors = (
-                        self.stats_obs_failed_errors + 1
-                    )
+                    self.observation_stats_lock.acquire(timeout=30)
+                    self.stats_obs_failed += 1
+                    self.observation_stats_lock.release()
+
+                # Report status
+                observation.log_status()
+
+                self.log_info(observation.obs_id, "Complete")
 
                 # Tell queue that job is done
                 self.observation_queue.task_done()
-
-                # Update stat on what we're working on
-                self.current_observations.remove(obs_id)
-
-                self.log_info(obs_id, "Complete")
 
         except queue.Empty:
             self.logger.debug("Queue empty")
 
             # Release lock
             self.observation_queue_lock.release()
+            return True
 
-        return True
+        except Exception as e:
+            self.log_exception(observation.obs_id, e)
+            # Tell queue that job is done
+            self.observation_queue.task_done()
+            return False
 
     def stop(self):
         self.terminate = True
@@ -248,8 +274,11 @@ class DeleteRequestProcessor(GenericProcessor):
             # remaining items and cleanup
             self.logger.debug("Clearing observation queue")
             while self.observation_queue.qsize() > 0:
-                self.observation_queue.get_nowait()
-                self.observation_queue.task_done()
+                try:
+                    self.observation_queue.get_nowait()
+                    self.observation_queue.task_done()
+                except queue.Empty:
+                    pass
 
             # Close pools
             self.logger.debug("Closing database pools")

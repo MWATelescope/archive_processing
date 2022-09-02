@@ -1,10 +1,11 @@
 import glob
 import logging.handlers
 import os
-from psycopg_pool import ConnectionPool
 import shutil
 import signal
+import sys
 import threading
+from psycopg_pool import ConnectionPool
 from configparser import ConfigParser
 from archive_processing.core.processor_webservice import (
     ProcessorHTTPServer,
@@ -84,8 +85,10 @@ class GenericProcessor:
 
         if self.execute:
             self.logger.warning(
-                "** EXECUTE is true. Will make changes to data! **"
+                "** EXECUTE is true. Will make changes to data! **\n\nWill"
+                " sleep for 10 seconds then begin..."
             )
+            sys.sleep(10)
         else:
             self.logger.info("DRY RUN. No data will be changed")
 
