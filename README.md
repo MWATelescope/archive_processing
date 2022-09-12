@@ -2,59 +2,60 @@
 Python 3.6+ compatible MWA Archive processing utilities.
 
 Currently the following are implemented:
-* delete_processor: Purging of any observations marked as 'to be deleted'.
-* delete_vcs_raw_processor: Delete redundant raw VCS data after recombine has been verified.
-
-This repo will eventually comprise the following utilities all using a common framework and common code:
-* offline_compression_processor: Compress and replace older observations.
-* flag_processor: RFI detection and flag file generation & archiving on new observations.
-* voltage_processor: Drives the recombine process to produce useable VCS data.
-
-These utilities run at Pawsey to support MWA Archive Operations.
-
-* test_processor: A test processor to ensure the framework is working correctly.
-
-There are two modes to running a subclass of the GenericObservationProcessor:
-* Per observation: This allows the subclass to execute code per observation.
-* Per observation and items within an observation: This allows the subclass to execute code at the observation level, and also at the per item level. Items can be anything but for cases will be data files belonging to that observation.
-
-The GenericObservationProcessor executes the following (in pseudocode):
+* delete_request_processor: Deletes data associated with delete_requests in the MWA database.
 
 ```
-create_or_clean_working_directory() (if applicable)
+for each unactioned delete_request:
+    Get list of observations which have not been deleted
+    for each observation:        
+        acacia_file_list = Get list of undeleted, remote_archived data files for this obs from database which are in Acacia
+            While len(acacia_file_list) > 0:
+                Get batch of up to 1000 files
+                Start database_transaction:
+                    Update data_files setting deleted_timestamp = Now()
+                    Call Acacia.Boto3.DeleteObjects(batch)                    
+                On Success of boto3 call: 
+                    Commit
+                    remove batch from acacia_file_list
+                On Failure of boto3 call: 
+                    Rollback
+                    Exit
 
-get_observation_list()
+        banksia_file_list = Get list of undeleted, remote_archived data files for this obs from database which are in Banksia
+            While len(banksia_file_list) > 0:
+                Get batch of up to 1000 files
+                Start database_transaction:
+                    Update data_files setting deleted_timestamp = Now()
+                    Call Banksia.Boto3.DeleteObjects(batch)
+                On Success of boto3 call: 
+                    Commit
+                    remove batch from banksia_file_list
+                On Failure of boto3 call: 
+                    Rollback
+                    Exit
+        
+        if all files to be deleted were deleted:
+            Update mwa_setting Set deleted_timestamp = Now()
+            On Failure of update, Exit
+    
+    If all observations in delete_request to be deleted were deleted:
+        Update delete_request Set actioned_datetime = Now()
+        On Failure of update, Exit
 
-if implements_per_item_processing:
-    for each obs_id:
-        create_obs_working_directory() (if applicable)        
-
-        process_one_observation(obs_id)
-        
-        get_observation_item_list(obs_id)
-        
-        for each item (in parallel):
-            process_one_observation_item(obs_id, item)
-        
-        end_of_observation(obs_id)
-
-        remove_obs_working_directory() (if applicable)
-else:
-    # Implements just per observation processing
-    for each obs_id (in parallel):
-        create_obs_working_directory() (if applicable)
-        
-        process_one_observation(obs_id)
-        
-        remove_obs_working_directory() (if applicable)
-
-clean_working_directory() (if applicable)
 ```
+There are also stand alone utilities allowing for fine grained actions:
+* Utils->delete_data_file(filename)
+  * This is for when we have need to individual file deletion not associated with a delete request.
 
-The subclass is responsible for overriding these methods:
-* get_observation_list()
-* process_one_observation(obs_id)
-* get_observation_item_list(obs_id) (for per item mode only)
-* process_one_observation_item(obs_id, item) (for per item mode only)
-* end_of_observation(obs_id) (for per item mode only)
- 
+```
+Lookup data_file record from database
+If data_files is remote_archive==True && deleted_timestamp == NULL:
+    Start database_transaction:
+        Update data_files setting deleted_timestamp = Now()
+        Call Banksia.Boto3.DeleteObject(filename)
+    On Success of boto3 call: 
+        Commit
+    On Failure of boto3 call: 
+        Rollback
+        Exit
+```
