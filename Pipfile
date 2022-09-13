@@ -1,0 +1,19 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+psycopg = "*"
+psycopg_pool = "*"
+requests = "*"
+tenacity = "*"
+python-openstackclient = "*"
+boto3 = "*"
+astropy = "*"
+
+[dev-packages]
+pytest = "*"
+
+[requires]
+python_version = "3.10"

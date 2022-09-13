@@ -3,8 +3,23 @@
 --
 -- Insert our test project
 --
-INSERT INTO public.mwa_project VALUES ('TEST001', 'Test project', 'Test project') 
-ON CONFLICT (projectid) DO NOTHING;
+INSERT INTO public.mwa_project VALUES ('TEST001', 'Test project', 'Test project') ON CONFLICT (projectid) DO NOTHING;
+
+--
+-- Insert checksum type
+--
+INSERT INTO public.checksum_types(id, description) VALUES (1, 'MD5') ON CONFLICT DO NOTHING;
+
+--
+-- Insert data file types
+--
+INSERT INTO public.data_file_types(type, description) VALUES (8, 'Raw Correlator Products');
+INSERT INTO public.data_file_types(type, description) VALUES (14, 'MWA PPD File');
+
+--
+-- Insert data file location
+--
+INSERT INTO public.data_locations(id, name, url) VALUES (1, 'Acacia', '');
 
 --
 -- Insert data_file_types
