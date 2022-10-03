@@ -1,0 +1,61 @@
+{
+    "delete_requests": {
+        "1": {
+            "actioned": false,
+            "obs_ids": [
+                12345,
+                67890
+            ]
+        },
+        "2": {
+            "actioned": false,
+            "obs_ids": [
+                12345,
+                67890
+            ]
+        },
+        "3": {
+            "actioned": false,
+            "obs_ids": [
+                12345,
+                67890
+            ]
+        },
+        "4": {
+            "actioned": false,
+            "obs_ids": [
+                12345,
+                67890
+            ]
+        },
+        "5": {
+            "actioned": false,
+            "obs_ids": [
+                12345,
+                67890
+            ]
+        }
+    },
+    "obs_ids": {
+        "12345": {
+            "deleted": false,
+            "files": [
+                "1.fits",
+                "2.fits",
+                "3.fits",
+                "4.fits",
+                "5.fits"
+            ]
+        },
+        "67890": {
+            "deleted": false,
+            "files": [
+                "1.fits",
+                "2.fits",
+                "3.fits",
+                "4.fits",
+                "5.fits"
+            ]
+        }
+    }
+}

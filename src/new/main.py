@@ -1,11 +1,10 @@
+import sys
 import logging
 import argparse
 
 from processor import ProcessorFactory
 
-def main() -> None:
-    logging.basicConfig(format='[%(asctime)s %(levelname)s] %(message)s')
-
+def parse_arguments(args=sys.argv):
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest='subcommand')
 
@@ -15,7 +14,13 @@ def main() -> None:
     delete_parser.add_argument("--verbose", "-v", action="store_true")
     delete_parser.add_argument("--dry_run", action="store_true")
 
-    args = parser.parse_args()
+    return parser.parse_args(args)
+
+
+def main() -> None:
+    logging.basicConfig(format='[%(asctime)s %(levelname)s] %(message)s')
+
+    args = parse_arguments()
 
     processor_factory = ProcessorFactory(args)
     processor = processor_factory.get_processor()

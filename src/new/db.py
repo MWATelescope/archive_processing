@@ -63,3 +63,31 @@ def run_sql_get_many_rows(
         if cur:
             cur.close()
     return records
+
+
+def run_sql_update(
+    database_pool: psycopg_pool.ConnectionPool, sql: str, args
+) -> None:
+    records = []
+    cur = None
+
+    try:
+        if database_pool:
+            database_pool.check()
+
+            with database_pool.connection() as conn:
+                cur = conn.cursor(row_factory=dict_row)
+
+                if args is None:
+                    cur.execute(sql)
+                else:
+                    cur.execute(sql, args)
+        else:
+            raise Exception("database pool is not initialised")
+
+    except Exception as error:
+        raise error
+
+    finally:
+        if cur:
+            cur.close()

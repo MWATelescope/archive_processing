@@ -1,5 +1,5 @@
 from enum import Enum
-from db import run_sql_get_many_rows, run_sql_get_one_row
+from db import run_sql_get_many_rows, run_sql_get_one_row, run_sql_update
 
 class MWAFileTypeFlags(Enum):
     GPUBOX_FILE = 8
@@ -75,3 +75,39 @@ def get_obs_data_files_filenames_except_ppds(database_pool, obs_id: int) -> list
         #return [r["filename"] for r in results]
     else:
         return []
+
+
+def get_undeleted_files_from_obs_id(database_pool, obs_id: int) -> list:
+    sql = """SELECT filename
+             FROM data_files
+             WHERE observation_num = %s
+             AND deleted_timestamp IS NULL"""
+
+    # Execute query
+    params = (obs_id,)
+    results = run_sql_get_many_rows(database_pool, sql, params)
+
+    if results:
+        return [r["filename"] for r in results]
+    else:
+        return []
+
+
+def set_obs_id_to_deleted(database_pool, obs_id: int):
+    sql = """UPDATE mwa_setting
+             SET deleted_timestamp = NOW()
+             WHERE starttime = %s"""
+
+    # Execute query
+    params = (obs_id,)
+    run_sql_update(database_pool, sql, params)
+
+
+def set_delete_request_to_actioned(database_pool, delete_request_id: int):
+    sql = """UPDATE delete_requests
+             SET actioned_datetime = NOW()
+             WHERE id = %s"""
+
+    # Execute query
+    params = (delete_request_id,)
+    run_sql_update(database_pool, sql, params)

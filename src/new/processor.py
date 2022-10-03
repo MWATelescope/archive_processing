@@ -9,7 +9,19 @@ from configparser import ConfigParser
 import boto3
 from psycopg_pool import ConnectionPool
 
-from sql import get_delete_requests, get_obs_ids_for_delete_request, get_obs_data_files_filenames_except_ppds
+from sql import (
+    get_delete_requests, 
+    get_obs_ids_for_delete_request, 
+    get_obs_data_files_filenames_except_ppds, 
+    get_undeleted_files_from_obs_id,
+    set_obs_id_to_deleted,
+    set_delete_request_to_actioned
+)
+
+locations = {
+    2: 'acacia',
+    3: 'banksia'
+}
 
 class Processor(ABC):
     def __init__(self, args):
@@ -75,7 +87,7 @@ class Processor(ABC):
     
     @abstractmethod
     def run(self):
-        pass
+        raise NotImplementedError
 
 
 class DeleteProcessor(Processor):
@@ -83,6 +95,7 @@ class DeleteProcessor(Processor):
         super().__init__(args)
 
 
+    #TODO remove all of the DB stuff into its own repository class
     def _get_delete_requests(self):
         return get_delete_requests(self.pool)
 
@@ -95,11 +108,59 @@ class DeleteProcessor(Processor):
         return get_obs_data_files_filenames_except_ppds(self.pool, obs_id)
 
 
-    def batch_delete_objects(self, bucket_object, keys_to_delete):
+    def _get_undeleted_files_from_obs_id(self, obs_id):
+        return get_undeleted_files_from_obs_id(self.pool, obs_id)
 
-        #TODO maybe add a user prompt here?
+
+    def _set_obs_id_to_deleted(self, obs_id):
+        return set_obs_id_to_deleted(self.pool, obs_id)
+
+
+    def _set_delete_request_to_actioned(self, obs_id):
+        return set_delete_request_to_actioned(self.pool, obs_id)
+
+
+    def batch_delete_objects(self, location, bucket, keys_to_delete):
+        #TODO make sure that deleted_timestamp is not updated if a file is deleted again
+        #Either only query files that have not already been deleted or find some other way
+
+        if self.dry_run:
+            return
+
+        confirm = input(f"Are you sure you would like to delete {len(keys_to_delete)} from {locations[location]}:{bucket} (y/n)")
+
+        if confirm != 'y':
+            return
+
+        try:
+            match locations[location]:
+                case 'acacia':
+                    s3 = boto3.resource(
+                        's3',
+                        aws_access_key_id=self.config.get('acacia', 'aws_access_key_id'),
+                        aws_secret_access_key=self.config.get('acacia', 'aws_secret_access_key'),
+                        endpoint_url=self.config.get('acacia', 'endpoint_url')
+                    )
+                case 'banksia':
+                    s3 = boto3.resource(
+                        's3',
+                        aws_access_key_id=self.config.get('banksia', 'aws_access_key_id'),
+                        aws_secret_access_key=self.config.get('banksia', 'aws_secret_access_key'),
+                        endpoint_url=self.config.get('banksia', 'endpoint_url')
+                    )
+                case _:
+                    self.logger.warning(f"Invalid location found {location}.")
+                    return
+        except Exception as e:
+            self.logger.warning(f"Could not connect to location {location}.")
+            return
+
+        if s3 == None:
+            return
+
+        bucket_object = s3.Bucket(bucket)
+
         objects_to_delete = []
-
         for key in keys_to_delete:
             objects_to_delete.append({'Key': key})
 
@@ -127,20 +188,19 @@ class DeleteProcessor(Processor):
                     )
 
 
-    def run(self):
-        self.logger.info("Starting delete processor.")
-
-        delete_requests = self._get_delete_requests()
-        num_delete_requests = len(delete_requests)
+    def _generate_data_structures(self) -> dict:
+        delete_requests_ids = self._get_delete_requests()
+        num_delete_requests = len(delete_requests_ids)
 
         self.logger.info(f"Found {num_delete_requests} delete requests.")
 
         files = defaultdict(dict)
+        delete_requests = defaultdict(list)
 
-        for delete_request_id in delete_requests:
+        for index, delete_request_id in enumerate(delete_requests_ids):
             obs_ids = self._get_obs_ids_for_delete_request(delete_request_id)
 
-            self.logger.info(f"Processing delete request ({delete_request_id}/{num_delete_requests}).")
+            self.logger.info(f"Processing delete request ({index + 1}/{num_delete_requests}).")
 
             self.logger.info(f"Delete request {delete_request_id} contains {len(obs_ids)} obs_ids.")
 
@@ -148,63 +208,84 @@ class DeleteProcessor(Processor):
                 obs_files = self._get_files_from_obs_id(obs_id)
 
                 self.logger.info(f"Processing obs_id {obs_id}.")
+                self.logger.info(f"obs_id {obs_id} contains {len(obs_files)} files.")
+
+                delete_requests[delete_request_id].append(obs_id)
 
                 for file in obs_files:
                     if file['bucket'] in files[file['location']]:
-                        files[file['location']]['bucket'].append(file['key'])
+                        files[file['location']]['bucket'].add(file['key'])
                     else:
-                       files[file['location']]['bucket'] = [file['key']]
+                       files[file['location']]['bucket'] = set(file['key'])
+
+        self.logger.info(f"Found files to delete in {len(files.keys())} locations.")
+
+        return files, delete_requests
 
 
+    def _process_file_structure(self, files: dict):
         for location in files.keys():
-            match location:
-                case 2:
-                    #Acacia
-                    s3 = boto3.resource(
-                        's3',
-                        aws_access_key_id=self.config.get('acacia', 'aws_access_key_id'),
-                        aws_secret_access_key=self.config.get('acacia', 'aws_secret_access_key'),
-                        endpoint_url=self.config.get('acacia', 'endpoint_url')
-                    )
-                case 3:
-                    #Banksia
-                    s3 = boto3.resource(
-                        's3',
-                        aws_access_key_id=self.config.get('banksia', 'aws_access_key_id'),
-                        aws_secret_access_key=self.config.get('banksia', 'aws_secret_access_key'),
-                        endpoint_url=self.config.get('banksia', 'endpoint_url')
-                    )
-                case _:
-                    break
 
+            self.logger.info(f"Location {location} contains {len(files[location].keys())} buckets with deleteable files.")
 
             for bucket in files[location].keys():
-                bucket_object = s3.Bucket(bucket)
-
                 keys = files[location][bucket]
                 keys_to_delete = []
                 counter = 0
+
+                self.logger.info(f"Bucket {bucket} contains {len(keys)} files to be deleted.")
+
                 for key in keys:
                     keys_to_delete.append(key)
                     counter += 1
 
                     if counter == 1000:
-                        self.batch_delete_objects(bucket_object, keys_to_delete)
+                        #Delete in batches of 1000
+                        self.batch_delete_objects(location, bucket, keys)
                         keys_to_delete = []
-                    
-                self.batch_delete_objects(bucket_object, keys_to_delete)
+                
+                #Delete any that are left!
+                self.batch_delete_objects(location, bucket, keys)
 
-        #TODO check which obs should be marked as deleted
+
+    def _process_delete_requests(self, delete_requests):
+        for delete_request_id in delete_requests:
+            dr_missing_files = False
+
+            for obs_id in delete_requests[delete_request_id]:
+                obs_undeleted_files = self._get_undeleted_files_from_obs_id(obs_id)
+
+                if len(obs_undeleted_files) > 0:
+                    self.logger.info(f"obs_id {obs_id} has {len(obs_undeleted_files)} files that are not deleted.")
+                    dr_missing_files = True
+                else:
+                    self.logger.info(f"Updating obs_id {obs_id} to deleted.")
+                    self._set_obs_id_to_deleted(obs_id)
+
+            if not dr_missing_files:
+                self.logger.info(f"Updating delete request {delete_request_id} to actioned.")
+                self._set_delete_request_to_actioned(delete_request_id)
+
+
+    def run(self):
+        self.logger.info("Starting delete processor.")
+
+        files, delete_requests = self._generate_data_structures()
+
+        self._process_file_structure(files)
+
+        self._process_delete_requests(delete_requests)
+
 
 
 class ProcessorFactory():
     def __init__(self, args):
         self.args = args
 
-    def get_processor(self) -> DeleteProcessor:
+    def get_processor(self) -> Processor:
         subcommand = self.args.subcommand
         match subcommand:
             case 'delete':
                 return DeleteProcessor(self.args)
             case _:
-                raise ValueError("Missing or invalid subcommand.")
+                raise ValueError(f"Missing or invalid subcommand {subcommand}.")
