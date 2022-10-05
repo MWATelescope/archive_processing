@@ -4,7 +4,7 @@ import argparse
 
 from processor import ProcessorFactory
 
-def parse_arguments(args=sys.argv):
+def parse_arguments(args: list = sys.argv) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest='subcommand')
 

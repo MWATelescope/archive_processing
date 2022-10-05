@@ -200,7 +200,8 @@ class DeleteRepository(Repository):
         sql = """SELECT filename
                 FROM data_files
                 WHERE observation_num = %s
-                AND deleted_timestamp IS NULL"""
+                AND deleted_timestamp IS NULL
+                AND remote_archived = TRUE"""
 
         # Execute query
         params = (obs_id,)

@@ -4,8 +4,10 @@ import logging
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from configparser import ConfigParser
+from argparse import Namespace
 
 import boto3
+from psycopg import Connection
 
 from repository import DeleteRepository
 
@@ -15,7 +17,7 @@ locations = {
 }
 
 class Processor(ABC):
-    def __init__(self, args, connection):
+    def __init__(self, args: Namespace, connection: Connection | None):
         self.verbose = args.verbose
         self.dry_run = args.dry_run
         self.logger = logging.getLogger()
@@ -32,6 +34,18 @@ class Processor(ABC):
 
 
     def _read_config(self, file_name: str) -> ConfigParser:
+        """
+        Parameters
+        ----------
+        file_name: str
+            Path to a config file.
+
+        Returns
+        -------
+        ConfigParser
+            ConfigParser object with parsed information from file.
+        """
+
         self.logger.info("Parsing config file.")
 
         config = ConfigParser()
@@ -47,12 +61,12 @@ class Processor(ABC):
 
     
     @abstractmethod
-    def run(self):
+    def run(self) -> None:
         raise NotImplementedError
 
 
 class DeleteProcessor(Processor):
-    def __init__(self, args, connection):
+    def __init__(self, args: ConfigParser, connection: Connection):
         super().__init__(args, connection)
 
         try:
@@ -64,24 +78,26 @@ class DeleteProcessor(Processor):
             sys.exit(1)
 
 
-    def _convert_keys_to_object(self, keys):
-        return [{'Key': key} for key in keys]
+    def _bucket_delete_keys(self, bucket, keys: list[str]) -> None:
+        """
+        For a given bucket and list of keys to be deleted from that bucket, delete objects.
 
-
-    def _bucket_delete_keys(self, bucket, keys):
+        Parameters
+        ----------
+        bucket:
+            A resource representing the S3 bucket.
+        keys: list[str]
+            A list of keys inside the bucket to be deleted.  
+        """
         bucket.delete_objects(
             Delete={
-                'Objects': self._convert_keys_to_object(keys)
+                'Objects': [{'Key': key} for key in keys]
             }
         )
 
 
-    def _batch_delete_objects(self, location, bucket, keys_to_delete):
+    def _batch_delete_objects(self, location: int, bucket: str, keys_to_delete: list[str]):
         self.logger.info(f"Deleting {len(keys_to_delete)} files.")
-        
-        if self.dry_run:
-            #TODO implement dry run properly
-            pass
 
         try:
             match locations[location]:
@@ -105,6 +121,12 @@ class DeleteProcessor(Processor):
         except Exception as e:
             self.logger.warning(f"Could not connect to location {location}.")
             raise
+
+        #Add log line indicating files/bucket/location which would have been deleted
+        if self.dry_run:
+            #TODO implement dry run properly
+            pass
+            #return
 
         bucket_object = s3.Bucket(bucket)
 
@@ -169,26 +191,27 @@ class DeleteProcessor(Processor):
                         keys_to_delete = []
                 
                 #Delete any that are left!
-                self._batch_delete_objects(location, bucket, keys_to_delete)
+                if keys_to_delete:
+                    self._batch_delete_objects(location, bucket, keys_to_delete)
 
 
     def _process_delete_requests(self, delete_requests):
         for delete_request_id in delete_requests:
             self.logger.info(f"Reviewing delete request {delete_request_id}.")
             
-            dr_missing_files = False
+            delete_request_has_missing_files = False
 
             for obs_id in delete_requests[delete_request_id]:
                 obs_undeleted_files = self.repository.get_undeleted_files_from_obs_id(obs_id)
 
                 if len(obs_undeleted_files) > 0:
                     self.logger.info(f"obs_id {obs_id} has {len(obs_undeleted_files)} files that are not deleted.")
-                    dr_missing_files = True
+                    delete_request_has_missing_files = True
                 else:
                     self.logger.info(f"Updating obs_id {obs_id} to deleted.")
                     self.repository.set_obs_id_to_deleted(obs_id)
 
-            if not dr_missing_files:
+            if not delete_request_has_missing_files:
                 self.logger.info(f"Updating delete request {delete_request_id} to actioned.")
                 self.repository.set_delete_request_to_actioned(delete_request_id)
 

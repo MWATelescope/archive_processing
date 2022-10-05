@@ -103,7 +103,7 @@ def test_processor_with_connection(postgresql):
     try:
         processor.run()
     except Exception as e:
-        #breakpoint()
+
         raise
 
 
