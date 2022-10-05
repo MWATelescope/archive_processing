@@ -92,7 +92,7 @@ def setup_buckets(postgresql):
 
 @mock_s3
 def test_processor_with_connection(postgresql):
-    args_list = ['delete', '--verbose', '--dry_run']
+    args_list = ['delete', '--verbose']
     args = parse_arguments(args=args_list)
 
     processor_factory = ProcessorFactory(args, connection=postgresql)

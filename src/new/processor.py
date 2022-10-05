@@ -80,7 +80,7 @@ class DeleteProcessor(Processor):
 
     def _bucket_delete_keys(self, bucket, keys: list[str]) -> None:
         """
-        For a given bucket and list of keys to be deleted from that bucket, delete objects.
+        For a given bucket and list of keys to be deleted from that bucket, make the S3 call to actually delete the objects.
 
         Parameters
         ----------
@@ -96,8 +96,19 @@ class DeleteProcessor(Processor):
         )
 
 
-    def _batch_delete_objects(self, location: int, bucket: str, keys_to_delete: list[str]):
-        self.logger.info(f"Deleting {len(keys_to_delete)} files.")
+    def _batch_delete_objects(self, location: int, bucket: str, keys_to_delete: list[str]) -> None:
+        """
+        For a given file location, bucket within that location, and list of keys - delete those keys from the file.
+
+        Parameters
+        ----------
+        location: int
+            Number representing the location of files, usually either Acacia (2) or Banksia (3)
+        bucket: str
+            The name of a bucket within location
+        keys_to_delete: list[str]
+            A list of string keys within bucket which will be deleted
+        """
 
         try:
             match locations[location]:
@@ -122,11 +133,11 @@ class DeleteProcessor(Processor):
             self.logger.warning(f"Could not connect to location {location}.")
             raise
 
-        #Add log line indicating files/bucket/location which would have been deleted
         if self.dry_run:
-            #TODO implement dry run properly
-            pass
-            #return
+            self.logger.info(f"Would have deleted {len(keys_to_delete)} files from {locations[location]}:{bucket}.")
+            return
+        else:
+            self.logger.info(f"Deleting {len(keys_to_delete)} files from {locations[location]}:{bucket}.")
 
         bucket_object = s3.Bucket(bucket)
 
@@ -135,6 +146,33 @@ class DeleteProcessor(Processor):
 
 
     def _generate_data_structures(self) -> dict:
+        """
+        Algorithm to generate two data structures which will later be processed.
+        Foreach delete request:
+            Foreach obs_id in delete request:
+                Foreach file (location, bucket, key) in obs_id
+
+        Returns
+        ----------
+        files: dict
+            Of the format:
+            {
+                location_id_2: {
+                    bucket1: (path/1.fits, path/2.fits),
+                    bucket2: (path/1.fits, path/2.fits)
+                },
+                location_id_3: {
+                    bucket3: (path/1.fits, path/2.fits),
+                    bucket4: (path/1.fits, path/2.fits)
+                }
+            }
+        delete_request: dict
+            Of the format:
+            {
+                delete_request_id_1: [obs_id_1, obs_id_2],
+                delete_request_id_2: [obs_id_3, obs_id_4]
+            }
+        """
         delete_requests_ids = self.repository.get_delete_requests()
         num_delete_requests = len(delete_requests_ids)
 
@@ -169,7 +207,15 @@ class DeleteProcessor(Processor):
         return files, delete_requests
 
 
-    def _process_file_structure(self, files: dict):
+    def _process_file_structure(self, files: dict) -> None:
+        """
+        Iterates through the files dict (described above), and sends delete requests in batches of 1000
+
+        Parameters
+        ----------
+        files: dict
+            Described in docstring above
+        """
         for location in files.keys():
 
             self.logger.info(f"Location {location} contains {len(files[location].keys())} buckets with deleteable files.")
@@ -195,7 +241,17 @@ class DeleteProcessor(Processor):
                     self._batch_delete_objects(location, bucket, keys_to_delete)
 
 
-    def _process_delete_requests(self, delete_requests):
+    def _process_delete_requests(self, delete_requests: dict) -> None:
+        """
+        Iterates through the delete_requests dict (described above).
+        Check with obs_id had all of its files deleted, and marks the observation itself as deleted.
+        If all files associated with a delete request were deleted, mark the delete request as actioned.
+
+        Parameters
+        ----------
+        files: dict
+            Described in docstring above
+        """
         for delete_request_id in delete_requests:
             self.logger.info(f"Reviewing delete request {delete_request_id}.")
             
@@ -216,7 +272,7 @@ class DeleteProcessor(Processor):
                 self.repository.set_delete_request_to_actioned(delete_request_id)
 
 
-    def run(self):
+    def run(self) -> None:
         self.logger.info("Starting delete processor.")
 
         files, delete_requests = self._generate_data_structures()
@@ -228,7 +284,7 @@ class DeleteProcessor(Processor):
 
 
 class ProcessorFactory():
-    def __init__(self, args, connection=None):
+    def __init__(self, args: Namespace, connection: Connection | None = None):
         self.args = args
         self.connection = connection
 
