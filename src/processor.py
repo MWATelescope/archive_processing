@@ -127,10 +127,12 @@ class DeleteProcessor(Processor):
                         endpoint_url=self.config.get('banksia', 'endpoint_url')
                     )
                 case _:
-                    self.logger.warning(f"Invalid location found {location}.")
-                    return
+                    raise ValueError(f"Invalid location found {location}.")
+                
+            bucket_object = s3.Bucket(bucket)
+            
         except Exception as e:
-            self.logger.warning(f"Could not connect to location {location}.")
+            self.logger.warning(f"Could not connect to {location}:{bucket}.")
             raise
 
         if self.dry_run:
@@ -138,8 +140,6 @@ class DeleteProcessor(Processor):
             return
         else:
             self.logger.info(f"Deleting {len(keys_to_delete)} files from {locations[location]}:{bucket}.")
-
-        bucket_object = s3.Bucket(bucket)
 
         #If this fails, should we exit? 🤔
         self.repository.update_files_to_deleted(self._bucket_delete_keys, bucket_object, keys_to_delete)
