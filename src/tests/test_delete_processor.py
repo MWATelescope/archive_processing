@@ -288,26 +288,78 @@ def passing_mock_delete_function(*args):
     return None
 
 
+def filter_undeleted_files(obs_files):
+    return [file for file in obs_files if file['deleted'] != True]
+
+
 def test_delete_files(delete_processor):
     obs_files = [
-        '11_1.fits',
-        '11_2.fits',
-        '11_3.fits',
-        '11_4.fits',
-        '11_5.fits',
-        '11_6.fits',
+        {
+            'location': 2, 
+            'bucket': 'mwa01fs', 
+            'key': '/bucket1/11_1.fits', 
+            'filename': '11_1.fits', 
+            'deleted': False
+        }, 
+        {
+            'location': 2, 
+            'bucket': 'mwa02fs', 
+            'key': '/bucket2/11_2.fits', 
+            'filename': '11_2.fits', 
+            'deleted': False
+        }, 
+        {
+            'location': 2, 
+            'bucket': 'mwa03fs', 
+            'key': '/bucket3/11_3.fits', 
+            'filename': '11_3.fits', 
+            'deleted': False
+        }, 
+        {
+            'location': 2, 
+            'bucket': 'mwa04fs', 
+            'key': '/bucket4/11_4.fits', 
+            'filename': '11_4.fits', 
+            'deleted': False
+        }, 
+        {
+            'location': 2, 
+            'bucket': 'mwa01fs', 
+            'key': '/bucket1/11_5.fits', 
+            'filename': '11_5.fits', 
+            'deleted': False
+        }, 
+        {
+            'location': 2, 
+            'bucket': 'mwa01fs', 
+            'key': '/bucket1/11_6.fits', 
+            'filename': '11_6.fits', 
+            'deleted': False
+        }
     ]
 
-    assert(delete_processor.repository.get_undeleted_files_from_obs_id(11) == obs_files)
+    assert(
+        filter_undeleted_files(
+            delete_processor.repository.get_obs_data_files_filenames_except_ppds(11)
+        ) == obs_files
+    )
 
     with pytest.raises(Exception):
         delete_processor.repository.update_files_to_deleted(failing_mock_delete_function, None, obs_files)
 
-    assert(delete_processor.repository.get_undeleted_files_from_obs_id(11) == obs_files)
+    assert(
+        filter_undeleted_files(
+            delete_processor.repository.get_obs_data_files_filenames_except_ppds(11)
+        ) == obs_files
+    )
 
-    delete_processor.repository.update_files_to_deleted(passing_mock_delete_function, None, obs_files)
+    delete_processor.repository.update_files_to_deleted(passing_mock_delete_function, None, [file['filename'] for file in obs_files])
 
-    assert(delete_processor.repository.get_undeleted_files_from_obs_id(11) == [])
+    assert(
+        filter_undeleted_files(
+            delete_processor.repository.get_obs_data_files_filenames_except_ppds(11)
+        ) == []
+    )
 
     delete_processor.repository.set_obs_id_to_deleted(11)
 

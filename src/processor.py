@@ -258,7 +258,8 @@ class DeleteProcessor(Processor):
             delete_request_has_missing_files = False
 
             for obs_id in delete_requests[delete_request_id]:
-                obs_undeleted_files = self.repository.get_undeleted_files_from_obs_id(obs_id)
+                obs_files = self.repository.get_obs_data_files_filenames_except_ppds(obs_id)
+                obs_undeleted_files = [file for file in obs_files if file['deleted'] != True]
 
                 if len(obs_undeleted_files) > 0:
                     self.logger.info(f"obs_id {obs_id} has {len(obs_undeleted_files)} files that are not deleted.")

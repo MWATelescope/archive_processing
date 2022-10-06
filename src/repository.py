@@ -247,7 +247,7 @@ class DeleteRepository(Repository):
         list:
             List of files associated with the given obs_id.
         """
-        sql = """SELECT location, bucket, CONCAT_WS('', folder, filename) as key, filename
+        sql = """SELECT location, bucket, CONCAT_WS('', folder, filename) as key, filename, deleted
                 FROM data_files
                 WHERE filetype NOT IN (%s)
                 AND observation_num = %s
@@ -269,7 +269,8 @@ class DeleteRepository(Repository):
                     'location': r["location"], 
                     'bucket': r["bucket"], 
                     'key': r["key"],
-                    'filename': r["filename"]
+                    'filename': r["filename"],
+                    'deleted': r["deleted"]
                 } 
                 for r in results
             ]
@@ -301,35 +302,6 @@ class DeleteRepository(Repository):
         params = [[key.split('/')[-1] for key in keys]]
 
         self.run_function_in_transaction(sql, params, delete_func, bucket, keys)
-
-
-    def get_undeleted_files_from_obs_id(self, obs_id: int) -> list:
-        """
-        Function to return a list of undeleted files associated with a given obs_id.
-
-        Parameters
-        ----------
-        obs_id: int
-            The obs_id for which to fetch non-deleted files.
-
-        Returns
-        -------
-        list:
-            List of undeleted files associated with the obs_id.
-        """
-        sql = """SELECT filename
-                FROM data_files
-                WHERE observation_num = %s
-                AND deleted_timestamp IS NULL
-                AND remote_archived = TRUE"""
-
-        params = (obs_id,)
-        results = self.run_sql_get_many_rows(sql, params)
-
-        if results:
-            return [r["filename"] for r in results]
-        else:
-            return []
 
 
     def set_obs_id_to_deleted(self, obs_id: int) -> None:
