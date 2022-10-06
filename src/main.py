@@ -23,7 +23,7 @@ def parse_arguments(args: list = sys.argv) -> argparse.Namespace:
 
     delete_parser = subparsers.add_parser("delete")
 
-    delete_parser.add_argument("--cfg", default="../../cfg/config.cfg")
+    delete_parser.add_argument("--cfg", default="../cfg/config.cfg")
     delete_parser.add_argument("--verbose", "-v", action="store_true", default=True)
     delete_parser.add_argument("--dry_run", action="store_true")
 
