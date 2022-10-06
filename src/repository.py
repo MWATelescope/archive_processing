@@ -251,7 +251,6 @@ class DeleteRepository(Repository):
                 FROM data_files
                 WHERE filetype NOT IN (%s)
                 AND observation_num = %s
-                AND deleted_timestamp IS NULL
                 AND remote_archived = True
                 ORDER BY filename"""
 
