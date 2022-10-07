@@ -16,6 +16,7 @@ locations = {
     3: 'banksia'
 }
 
+
 class Processor(ABC):
     def __init__(self, args: Namespace, connection: Connection | None):
         self.verbose = args.verbose
@@ -31,7 +32,6 @@ class Processor(ABC):
             self.logger.info("Dry run enabled.")
 
         self.config = self._read_config(args.cfg)
-
 
     def _read_config(self, file_name: str) -> ConfigParser:
         """
@@ -59,7 +59,6 @@ class Processor(ABC):
             self.logger.error("Could not parse config file.")
             sys.exit(1)
 
-    
     @abstractmethod
     def run(self) -> None:
         raise NotImplementedError
@@ -77,10 +76,10 @@ class DeleteProcessor(Processor):
             self.logger.error(e)
             sys.exit(1)
 
-
     def _bucket_delete_keys(self, bucket, keys: list[str]) -> None:
         """
-        For a given bucket and list of keys to be deleted from that bucket, make the S3 call to actually delete the objects.
+        For a given bucket and list of keys to be deleted from that bucket,
+        make the S3 call to delete the corresponding objects.
 
         Parameters
         ----------
@@ -94,7 +93,6 @@ class DeleteProcessor(Processor):
                 'Objects': [{'Key': key} for key in keys]
             }
         )
-
 
     def _batch_delete_objects(self, location: int, bucket: str, keys_to_delete: list[str]) -> None:
         """
@@ -128,11 +126,12 @@ class DeleteProcessor(Processor):
                     )
                 case _:
                     raise ValueError(f"Invalid location found {location}.")
-                
+
             bucket_object = s3.Bucket(bucket)
-            
+
         except Exception as e:
             self.logger.warning(f"Could not connect to {location}:{bucket}.")
+            self.logger.warning(e)
             raise
 
         if self.dry_run:
@@ -141,9 +140,8 @@ class DeleteProcessor(Processor):
         else:
             self.logger.info(f"Deleting {len(keys_to_delete)} files from {locations[location]}:{bucket}.")
 
-        #If this fails, should we exit? 🤔
+        # If this fails, should we exit? 🤔
         self.repository.update_files_to_deleted(self._bucket_delete_keys, bucket_object, keys_to_delete)
-
 
     def _generate_data_structures(self) -> dict:
         """
@@ -200,12 +198,11 @@ class DeleteProcessor(Processor):
                     if file['bucket'] in files[file['location']]:
                         files[file['location']][file['bucket']].add(file['key'])
                     else:
-                       files[file['location']][file['bucket']] = set([file['key']])
+                        files[file['location']][file['bucket']] = set([file['key']])
 
         self.logger.info(f"Found files to delete in {len(files.keys())} locations.")
 
         return files, delete_requests
-
 
     def _process_file_structure(self, files: dict) -> None:
         """
@@ -232,14 +229,13 @@ class DeleteProcessor(Processor):
                     counter += 1
 
                     if counter == 1000:
-                        #Delete in batches of 1000
+                        # Delete in batches of 1000
                         self._batch_delete_objects(location, bucket, keys_to_delete)
                         keys_to_delete = []
-                
-                #Delete any that are left!
+
+                # Delete any that are left!
                 if keys_to_delete:
                     self._batch_delete_objects(location, bucket, keys_to_delete)
-
 
     def _process_delete_requests(self, delete_requests: dict) -> None:
         """
@@ -254,12 +250,12 @@ class DeleteProcessor(Processor):
         """
         for delete_request_id in delete_requests:
             self.logger.info(f"Reviewing delete request {delete_request_id}.")
-            
+
             delete_request_has_missing_files = False
 
             for obs_id in delete_requests[delete_request_id]:
                 obs_files = self.repository.get_obs_data_files_filenames_except_ppds(obs_id)
-                obs_undeleted_files = [file for file in obs_files if file['deleted'] != True]
+                obs_undeleted_files = [file for file in obs_files if file['deleted'] is not True]
 
                 if len(obs_undeleted_files) > 0:
                     self.logger.info(f"obs_id {obs_id} has {len(obs_undeleted_files)} files that are not deleted.")
@@ -272,7 +268,6 @@ class DeleteProcessor(Processor):
                 self.logger.info(f"Updating delete request {delete_request_id} to actioned.")
                 self.repository.set_delete_request_to_actioned(delete_request_id)
 
-
     def run(self) -> None:
         self.logger.info("Starting delete processor.")
 
@@ -283,12 +278,10 @@ class DeleteProcessor(Processor):
         self._process_delete_requests(delete_requests)
 
 
-
 class ProcessorFactory():
     def __init__(self, args: Namespace, connection: Connection | None = None):
         self.args = args
         self.connection = connection
-
 
     def get_processor(self) -> Processor:
         subcommand = self.args.subcommand

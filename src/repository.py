@@ -20,19 +20,17 @@ class MWAFileTypeFlags(Enum):
     MWAX_VISIBILITIES = 18
 
 
-
 class Repository():
     def __init__(self, config: ConfigParser, connection: Connection | None):
         self.config = config
         self.conn = self._setup_conn(connection)
 
         if connection is None:
-            #Test database will close cleanly causing this to fail, so need to check if our connection was initially None or not.
+            # Test database will close cleanly causing this to fail, so need to check if our connection was initially None or not.
             atexit.register(self._close)
 
-
     def _setup_conn(self, connection: Connection | None) -> Connection:
-        #Optionally pass in an existing psycopg3 connection. Otherwise look in the supplied config file and make a new one.
+        # Optionally pass in an existing psycopg3 connection. Otherwise look in the supplied config file and make a new one.
         if connection is not None:
             return connection
 
@@ -48,14 +46,12 @@ class Repository():
 
         return psycopg.connect(dsn, cursor_factory=dict_row, autocommit=True)
 
-
     def _close(self) -> None:
         """
         Function to close postgres connection on shutdown.
         """
         self.conn.close()
 
-    
     def run_sql_get_one_row(self, sql: str, args: tuple) -> dict:
         """
         Execute the provided sql with args, and return a single result.
@@ -87,7 +83,6 @@ class Repository():
             raise error
 
         return record
-
 
     def run_sql_get_many_rows(self, sql: str, args: tuple) -> list[dict]:
         """
@@ -121,7 +116,6 @@ class Repository():
 
         return records
 
-
     def run_sql_update(self, sql: str, args: tuple) -> None:
         """
         Execute the provided sql with args. For updates only.
@@ -145,7 +139,6 @@ class Repository():
 
         except Exception as error:
             raise error
-
 
     def run_function_in_transaction(self, sql: str, params: list, fun: Callable, *args) -> None:
         """
@@ -180,7 +173,6 @@ class DeleteRepository(Repository):
     def __init__(self, config: ConfigParser, connection: Connection):
         super().__init__(config, connection)
 
-
     def get_delete_requests(self) -> list:
         """
         Function to return a list of all not-cancelled unactioned delete request ids.
@@ -203,7 +195,6 @@ class DeleteRepository(Repository):
             return [r["id"] for r in results]
         else:
             return []
-
 
     def get_obs_ids_for_delete_request(self, delete_request_id: int) -> list:
         """
@@ -231,7 +222,6 @@ class DeleteRepository(Repository):
             return [r["obs_id"] for r in results]
         else:
             return []
-
 
     def get_obs_data_files_filenames_except_ppds(self, obs_id: int) -> list:
         """
@@ -276,7 +266,6 @@ class DeleteRepository(Repository):
         else:
             return []
 
-
     def update_files_to_deleted(self, delete_func: Callable, bucket, keys: list) -> None:
         """
         Given a provided function to actually delete files, an S3 bucket, and a list of keys:
@@ -302,7 +291,6 @@ class DeleteRepository(Repository):
 
         self.run_function_in_transaction(sql, params, delete_func, bucket, keys)
 
-
     def set_obs_id_to_deleted(self, obs_id: int) -> None:
         """
         Mark a given obs_id as deleted.
@@ -320,7 +308,6 @@ class DeleteRepository(Repository):
         params = (obs_id,)
         self.run_sql_update(sql, params)
 
-    
     def set_delete_request_to_actioned(self, delete_request_id: int) -> None:
         """
         Function to mark a delete request as actioned, given its id.
