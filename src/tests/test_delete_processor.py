@@ -86,12 +86,12 @@ def test_parse_args():
     assert(args.cfg == 'test')
 
 
-def test_processor_factory():
+def test_processor_factory(postgresql):
     args_list = ['delete', '--verbose', '--dry_run']
 
     args = parse_arguments(args=args_list)
 
-    processor_factory = ProcessorFactory(args)
+    processor_factory = ProcessorFactory(args, connection=postgresql)
     processor = processor_factory.get_processor()
 
     assert(isinstance(processor, DeleteProcessor))
