@@ -1,3 +1,4 @@
+import os
 import atexit
 
 from enum import Enum
@@ -223,7 +224,7 @@ class DeleteRepository(Repository):
         else:
             return []
 
-    def get_obs_data_files_filenames_except_ppds(self, obs_id: int) -> list:
+    def get_not_deleted_obs_data_files_except_ppds(self, obs_id: int) -> list:
         """
         Function to return a list of files associated with a given obs_id (excluding PPDs).
 
@@ -237,11 +238,12 @@ class DeleteRepository(Repository):
         list:
             List of files associated with the given obs_id.
         """
-        sql = """SELECT location, bucket, CONCAT_WS('', folder, filename) as key, filename, deleted
+        sql = """SELECT location, bucket, CONCAT_WS('', folder, filename) as key, filename
                 FROM data_files
                 WHERE filetype NOT IN (%s)
                 AND observation_num = %s
                 AND remote_archived = True
+                AND deleted_timestamp IS NULL
                 ORDER BY filename"""
 
         results = self.run_sql_get_many_rows(
@@ -255,12 +257,11 @@ class DeleteRepository(Repository):
         if results:
             return [
                 {
-                    'location': r["location"], 
-                    'bucket': r["bucket"], 
+                    'location': r["location"],
+                    'bucket': r["bucket"],
                     'key': r["key"],
                     'filename': r["filename"],
-                    'deleted': r["deleted"]
-                } 
+                }
                 for r in results
             ]
         else:
@@ -282,12 +283,12 @@ class DeleteRepository(Repository):
         keys: list
             The list of keys in the bucket which will be deleted.
         """
-        sql = """UPDATE data_files 
-                SET deleted = TRUE, 
-                deleted_timestamp = NOW() 
-                WHERE filename = ANY(%s);"""
+        sql = """UPDATE data_files
+                SET deleted_timestamp = NOW()
+                WHERE deleted_timestamp IS NULL
+                AND filename = ANY(%s);"""
 
-        params = [[key.split('/')[-1] for key in keys]]
+        params = [[os.path.split(key)[-1] for key in keys]]
 
         self.run_function_in_transaction(sql, params, delete_func, bucket, keys)
 
@@ -303,7 +304,8 @@ class DeleteRepository(Repository):
         sql = """UPDATE mwa_setting
                 SET deleted_timestamp = NOW(),
                 deleted = TRUE
-                WHERE starttime = %s"""
+                WHERE deleted_timestamp IS NULL
+                AND starttime = %s"""
 
         params = (obs_id,)
         self.run_sql_update(sql, params)
@@ -319,7 +321,8 @@ class DeleteRepository(Repository):
         """
         sql = """UPDATE deletion_requests
                 SET actioned_datetime = NOW()
-                WHERE id = %s"""
+                WHERE actioned_datetime IS NULL
+                AND id = %s"""
 
         # Execute query
         params = (delete_request_id,)

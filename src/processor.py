@@ -186,15 +186,18 @@ class DeleteProcessor(Processor):
 
             self.logger.info(f"Delete request {delete_request_id} contains {len(obs_ids)} obs_ids.")
 
-            for obs_id in obs_ids:
-                obs_files = self.repository.get_obs_data_files_filenames_except_ppds(obs_id)
+            for index, obs_id in enumerate(obs_ids):
+                obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(obs_id)
 
-                self.logger.info(f"Processing obs_id {obs_id}.")
+                self.logger.info(f"Processing obs_id {obs_id} ({index + 1}/{len(obs_ids)}).")
                 self.logger.info(f"obs_id {obs_id} contains {len(obs_files)} files.")
 
                 delete_requests[delete_request_id].append(obs_id)
 
-                for file in obs_files:
+                for index, file in enumerate(obs_files):
+
+                    self.logger.info(f"Processing file {index + 1}/{len(obs_files)}")
+
                     if file['bucket'] in files[file['location']]:
                         files[file['location']][file['bucket']].add(file['key'])
                     else:
@@ -213,11 +216,13 @@ class DeleteProcessor(Processor):
         files: dict
             Described in docstring above
         """
-        for location in files.keys():
+        for index, location in enumerate(files.keys()):
 
-            self.logger.info(f"Location {location} contains {len(files[location].keys())} buckets with deleteable files.")
+            buckets = files[location]
+            self.logger.info(f"Location {location} contains {len(buckets)} buckets with deleteable files.")
+            self.logger.info(f"Processing location {index + 1}/{len(files.keys())}")
 
-            for bucket in files[location].keys():
+            for bucket in buckets:
                 keys = files[location][bucket]
                 keys_to_delete = []
                 counter = 0
@@ -254,11 +259,10 @@ class DeleteProcessor(Processor):
             delete_request_has_missing_files = False
 
             for obs_id in delete_requests[delete_request_id]:
-                obs_files = self.repository.get_obs_data_files_filenames_except_ppds(obs_id)
-                obs_undeleted_files = [file for file in obs_files if file['deleted'] is not True]
+                obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(obs_id)
 
-                if len(obs_undeleted_files) > 0:
-                    self.logger.info(f"obs_id {obs_id} has {len(obs_undeleted_files)} files that are not deleted.")
+                if len(obs_files) > 0:
+                    self.logger.info(f"obs_id {obs_id} has {len(obs_files)} files that are not deleted.")
                     delete_request_has_missing_files = True
                 else:
                     self.logger.info(f"Updating obs_id {obs_id} to deleted.")

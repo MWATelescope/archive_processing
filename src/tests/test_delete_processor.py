@@ -196,7 +196,7 @@ def test_get_obs_ids_for_delete_request(delete_processor):
 
 
 def get_obs_data_files_filenames_except_ppds(delete_processor):
-    assert (delete_processor.repository.get_obs_data_files_filenames_except_ppds(11) == [
+    assert (delete_processor.repository.get_not_deleted_obs_data_files_except_ppds(11) == [
         {
             'location': 2,
             'bucket': 'mwa01fs',
@@ -235,7 +235,7 @@ def get_obs_data_files_filenames_except_ppds(delete_processor):
         }
     ])
 
-    assert (delete_processor.repository.get_obs_data_files_filenames_except_ppds(31) == [
+    assert (delete_processor.repository.get_not_deleted_obs_data_files_except_ppds(31) == [
         {
             'location': 3,
             'bucket': 'mwaingest-31',
@@ -283,77 +283,61 @@ def passing_mock_delete_function(*args):
     return None
 
 
-def filter_undeleted_files(obs_files):
-    return [file for file in obs_files if file['deleted'] is not True]
-
-
 def test_delete_files(delete_processor):
     obs_files = [
         {
             'location': 2,
             'bucket': 'mwa01fs',
             'key': '/bucket1/11_1.fits',
-            'filename': '11_1.fits',
-            'deleted': False
+            'filename': '11_1.fits'
         },
         {
             'location': 2,
             'bucket': 'mwa02fs',
             'key': '/bucket2/11_2.fits',
-            'filename': '11_2.fits',
-            'deleted': False
+            'filename': '11_2.fits'
         },
         {
             'location': 2,
             'bucket': 'mwa03fs',
             'key': '/bucket3/11_3.fits',
-            'filename': '11_3.fits',
-            'deleted': False
+            'filename': '11_3.fits'
         },
         {
             'location': 2,
             'bucket': 'mwa04fs',
             'key': '/bucket4/11_4.fits',
-            'filename': '11_4.fits',
-            'deleted': False
+            'filename': '11_4.fits'
         },
         {
             'location': 2,
             'bucket': 'mwa01fs',
             'key': '/bucket1/11_5.fits',
-            'filename': '11_5.fits',
-            'deleted': False
+            'filename': '11_5.fits'
         },
         {
             'location': 2,
             'bucket': 'mwa01fs',
             'key': '/bucket1/11_6.fits',
-            'filename': '11_6.fits',
-            'deleted': False
+            'filename': '11_6.fits'
         }
     ]
 
     assert (
-        filter_undeleted_files(
-            delete_processor.repository.get_obs_data_files_filenames_except_ppds(11)
-        ) == obs_files
+        delete_processor.repository.get_not_deleted_obs_data_files_except_ppds(11) == obs_files
     )
 
     with pytest.raises(Exception):
         delete_processor.repository.update_files_to_deleted(failing_mock_delete_function, None, obs_files)
 
     assert (
-        filter_undeleted_files(
-            delete_processor.repository.get_obs_data_files_filenames_except_ppds(11)
-        ) == obs_files
+        delete_processor.repository.get_not_deleted_obs_data_files_except_ppds(11) == obs_files
     )
 
     delete_processor.repository.update_files_to_deleted(passing_mock_delete_function, None, [file['filename'] for file in obs_files])
 
     assert (
-        filter_undeleted_files(
-            delete_processor.repository.get_obs_data_files_filenames_except_ppds(11)
-        ) == []
+        delete_processor.repository.get_not_deleted_obs_data_files_except_ppds(11) == []
     )
 
     delete_processor.repository.set_obs_id_to_deleted(11)
@@ -405,8 +389,7 @@ def test_run(delete_processor, aws_credentials):
 
     sql = """SELECT *
             FROM data_files
-            WHERE NOT deleted
-            OR deleted_timestamp IS NULL"""
+            WHERE deleted_timestamp IS NULL"""
 
     undeleted_files = delete_processor.repository.run_sql_get_many_rows(sql, None)
     assert (len(undeleted_files) == 0)
