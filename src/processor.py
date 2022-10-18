@@ -1,10 +1,11 @@
-import sys
 import logging
-
-from abc import abstractmethod, ABC
+import os
+import signal
+import sys
+from abc import ABC, abstractmethod
+from argparse import Namespace
 from collections import defaultdict
 from configparser import ConfigParser
-from argparse import Namespace
 
 import boto3
 from psycopg import Connection
@@ -22,16 +23,19 @@ class Processor(ABC):
         self.verbose = args.verbose
         self.dry_run = args.dry_run
         self.logger = logging.getLogger()
+        self.config = self._read_config(args.cfg)
+        self.terminate = False
+
+        if self.dry_run:
+            self.logger.info("Dry run enabled.")
 
         if self.verbose:
             self.logger.setLevel(logging.INFO)
         else:
             self.logger.setLevel(logging.WARN)
 
-        if self.dry_run:
-            self.logger.info("Dry run enabled.")
-
-        self.config = self._read_config(args.cfg)
+        for sig in [signal.SIGINT]:
+            signal.signal(sig, self._signal_handler)
 
     def _read_config(self, file_name: str) -> ConfigParser:
         """
@@ -59,6 +63,10 @@ class Processor(ABC):
             self.logger.error("Could not parse config file.")
             sys.exit(1)
 
+    def _signal_handler(self, sig, frame):
+        self.logger.info(f"Interrupted! Received signal {sig}.")
+        self.terminate = True
+
     @abstractmethod
     def run(self) -> None:
         raise NotImplementedError
@@ -76,23 +84,31 @@ class DeleteProcessor(Processor):
             self.logger.error(e)
             sys.exit(1)
 
-    def _bucket_delete_keys(self, bucket, keys: list[str]) -> None:
+    def _bucket_delete_keys(self, bucket, keys: list[str]) -> list[list]:
         """
         For a given bucket and list of keys to be deleted from that bucket,
-        make the S3 call to delete the corresponding objects.
+        make the S3 call to delete the corresponding objects. Then, return a list of filenames which were deleted.
 
         Parameters
         ----------
         bucket:
             A resource representing the S3 bucket.
         keys: list[str]
-            A list of keys inside the bucket to be deleted.  
+            A list of keys inside the bucket to be deleted.
+
+        Returns
+        -------
+        A list of filenames which were deleted from the bucket.
         """
-        bucket.delete_objects(
+        response = bucket.delete_objects(
             Delete={
                 'Objects': [{'Key': key} for key in keys]
             }
         )
+
+        deleted_objects = response["Deleted"]
+        deleted_keys = [deleted_object["Key"] for deleted_object in deleted_objects]
+        return [[os.path.split(key)[-1] for key in deleted_keys]]
 
     def _batch_delete_objects(self, location: int, bucket: str, keys_to_delete: list[str]) -> None:
         """
@@ -107,6 +123,11 @@ class DeleteProcessor(Processor):
         keys_to_delete: list[str]
             A list of string keys within bucket which will be deleted
         """
+
+        # If we've received a signal, do not process this batch and exit. Allows in progress batches to complete execution
+        if self.terminate:
+            self.logger.warn("Exiting.")
+            sys.exit(0)
 
         try:
             match locations[location]:
@@ -181,6 +202,8 @@ class DeleteProcessor(Processor):
 
         for index, delete_request_id in enumerate(delete_requests_ids):
             obs_ids = self.repository.get_obs_ids_for_delete_request(delete_request_id)
+
+            # TODO use web services to validate obs_ids in delete requests
 
             self.logger.info(f"Processing delete request ({index + 1}/{num_delete_requests}).")
 
@@ -259,6 +282,11 @@ class DeleteProcessor(Processor):
             delete_request_has_missing_files = False
 
             for obs_id in delete_requests[delete_request_id]:
+
+                if self.terminate:
+                    self.logger.warn("Exiting.")
+                    sys.exit(0)
+
                 obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(obs_id)
 
                 if len(obs_files) > 0:

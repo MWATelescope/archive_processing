@@ -2,19 +2,18 @@ import os
 import sys
 
 import boto3
-import pytest
 import psycopg
-
+import pytest
+from moto import mock_s3
 from psycopg import Connection
 from psycopg.rows import dict_row
 from pytest_postgresql import factories
-from moto import mock_s3
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 file_path = os.path.abspath(os.path.dirname(__file__))
 
-from processor import ProcessorFactory, DeleteProcessor
 from cli import parse_arguments
+from processor import DeleteProcessor, ProcessorFactory
 
 
 def load_database(**kwargs):
@@ -280,7 +279,33 @@ def failing_mock_delete_function(*args):
 
 
 def passing_mock_delete_function(*args):
-    return None
+    response = {
+        'Deleted': [
+            {
+                "Key": "/bucket1/11_1.fits"
+            },
+            {
+                "Key": "/bucket2/11_2.fits"
+            },
+            {
+                "Key": "/bucket3/11_3.fits"
+            },
+            {
+                "Key": "/bucket4/11_4.fits"
+            },
+            {
+                "Key": "/bucket1/11_5.fits"
+            },
+            {
+                "Key": "/bucket1/11_6.fits"
+            }
+        ]
+    }
+
+    deleted_objects = response['Deleted']
+    deleted_keys = [deleted_object['Key'] for deleted_object in deleted_objects]
+
+    return [[os.path.split(key)[-1] for key in deleted_keys]]
 
 
 def test_delete_files(delete_processor):

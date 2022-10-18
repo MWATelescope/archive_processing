@@ -1,11 +1,10 @@
-import os
 import atexit
-
+from configparser import ConfigParser
 from enum import Enum
 from typing import Callable
-from configparser import ConfigParser
 
 import psycopg
+import requests
 from psycopg import ClientCursor, Connection
 from psycopg.rows import dict_row
 
@@ -141,7 +140,7 @@ class Repository():
         except Exception as error:
             raise error
 
-    def run_function_in_transaction(self, sql: str, params: list, fun: Callable, *args) -> None:
+    def run_function_in_transaction(self, sql: str, fun: Callable, *args) -> None:
         """
         Run the provided sql (with its params) in side of a transaction.
         Then, run fun(*args). If this fails, the transaction will be rolled back.
@@ -160,14 +159,25 @@ class Repository():
         try:
             with self.conn.transaction():
                 with ClientCursor(self.conn) as cur:
+                    params = fun(*args)
+
                     query = cur.mogrify(sql, params)
                     cur.execute(query)
-
-                    fun(*args)
 
             self.conn.commit()
         except Exception as error:
             raise error
+
+    def ws_request(self, url: str, data: dict) -> dict:
+        try:
+            response = requests.post(f"{self.config.get('webservices', 'url')}{url}", data=data)
+
+            if response.status_code != 200:
+                raise Exception(f"Webservices request failed. Got status code {response.status_code}.")
+            else:
+                return response.json()
+        except Exception:
+            raise
 
 
 class DeleteRepository(Repository):
@@ -196,6 +206,23 @@ class DeleteRepository(Repository):
             return [r["id"] for r in results]
         else:
             return []
+
+    def ws_get_delete_requests(self) -> dict:
+        """
+        Function to get all of the not-cancelled, approved, not actioned delete requests, including their obs_ids
+
+        Returns
+        -------
+        Dictionary of delete requests, including their obs_ids
+        """
+        data = {
+            'not_cancelled': True,
+            'not_approved': False,
+            'not_actioned': True,
+            'omit_obsids': False
+        }
+
+        return self.ws_request("/get_deletion_requests", data)
 
     def get_obs_ids_for_delete_request(self, delete_request_id: int) -> list:
         """
@@ -288,9 +315,7 @@ class DeleteRepository(Repository):
                 WHERE deleted_timestamp IS NULL
                 AND filename = ANY(%s);"""
 
-        params = [[os.path.split(key)[-1] for key in keys]]
-
-        self.run_function_in_transaction(sql, params, delete_func, bucket, keys)
+        self.run_function_in_transaction(sql, delete_func, bucket, keys)
 
     def set_obs_id_to_deleted(self, obs_id: int) -> None:
         """
@@ -327,3 +352,18 @@ class DeleteRepository(Repository):
         # Execute query
         params = (delete_request_id,)
         self.run_sql_update(sql, params)
+
+    def ws_set_delete_request_to_actioned(self, delete_request_id: int) -> None:
+        """
+        Function to mark a delete request as actioned, given its id.
+
+        Parameters
+        ----------
+        delete_request_id: int
+            The id of the delete request which will be marked as actioned.
+        """
+        data = {
+            'request_id': delete_request_id
+        }
+
+        self.ws_request('/set_deletion_actioned', data)
