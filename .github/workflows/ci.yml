@@ -35,4 +35,4 @@ jobs:
           POSTGRES_PASSWORD: postgres
         run: |
           cd src
-          pipenv run pytest
+          pipenv run pytest --postgresql-password=postgres --postgresql-host=postgres
