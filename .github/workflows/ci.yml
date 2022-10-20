@@ -21,6 +21,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+          
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -29,10 +30,8 @@ jobs:
         run: |
           pip install pipenv
           pipenv install --dev
+
       - name: Run tests
-        env:
-          POSTGRES_HOST: postgres
-          POSTGRES_PASSWORD: postgres
         run: |
           cd src
           pipenv run pytest --postgresql-password=postgres --postgresql-host=postgres
