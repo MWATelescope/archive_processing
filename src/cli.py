@@ -2,7 +2,7 @@ import sys
 import argparse
 
 
-def parse_arguments(args: list = sys.argv) -> argparse.Namespace:
+def parse_arguments(args: list = sys.argv[1:]) -> argparse.Namespace:
     """
     Function to Namespace object from a given list of arguments
     (defaults to sys.argv)
