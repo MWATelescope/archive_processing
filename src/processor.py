@@ -197,34 +197,32 @@ class DeleteProcessor(Processor):
 
         self.logger.info(f"Found {num_delete_requests} delete requests.")
 
-        files = defaultdict(dict)
+        files = defaultdict(lambda: defaultdict(set))
         delete_requests = defaultdict(list)
 
         for index, delete_request_id in enumerate(delete_requests_ids):
             obs_ids = self.repository.get_obs_ids_for_delete_request(delete_request_id)
-
-            # TODO use web services to validate obs_ids in delete requests
+            invalid_obs_ids = self.repository.validate_obsids(obs_ids)
 
             self.logger.info(f"Processing delete request ({index + 1}/{num_delete_requests}).")
-
             self.logger.info(f"Delete request {delete_request_id} contains {len(obs_ids)} obs_ids.")
+
+            if invalid_obs_ids:
+                # Shouldn't happen, but catching the case where an observation was added to a collection after the delete request was created
+                self.logger.error(f"Delete request {delete_request_id} contains observations that cannot be deleted. Please check and try again.")
+                sys.exit(0)
 
             for index, obs_id in enumerate(obs_ids):
                 obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(obs_id)
+                delete_requests[delete_request_id].append(obs_id)
 
                 self.logger.info(f"Processing obs_id {obs_id} ({index + 1}/{len(obs_ids)}).")
                 self.logger.info(f"obs_id {obs_id} contains {len(obs_files)} files.")
 
-                delete_requests[delete_request_id].append(obs_id)
-
                 for index, file in enumerate(obs_files):
-
                     self.logger.info(f"Processing file {index + 1}/{len(obs_files)}")
 
-                    if file['bucket'] in files[file['location']]:
-                        files[file['location']][file['bucket']].add(file['key'])
-                    else:
-                        files[file['location']][file['bucket']] = set([file['key']])
+                    files[file['location']][file['bucket']].add(file['key'])
 
         self.logger.info(f"Found files to delete in {len(files.keys())} locations.")
 
@@ -240,8 +238,8 @@ class DeleteProcessor(Processor):
             Described in docstring above
         """
         for index, location in enumerate(files.keys()):
-
             buckets = files[location]
+
             self.logger.info(f"Location {location} contains {len(buckets)} buckets with deleteable files.")
             self.logger.info(f"Processing location {index + 1}/{len(files.keys())}")
 
@@ -265,7 +263,7 @@ class DeleteProcessor(Processor):
                 if keys_to_delete:
                     self._batch_delete_objects(location, bucket, keys_to_delete)
 
-    def _process_delete_requests(self, delete_requests: dict) -> None:
+    def _process_delete_requests(self, delete_requests: dict) -> tuple[int, dict]:
         """
         Iterates through the delete_requests dict (described above).
         Check with obs_id had all of its files deleted, and marks the observation itself as deleted.
@@ -275,7 +273,17 @@ class DeleteProcessor(Processor):
         ----------
         files: dict
             Described in docstring above
+
+        Returns
+        ----------
+        num_actioned_delete_requests: int
+            The number of delete requests that were actioned.
+        failed_delete_requests: dict
+            Dictionary containing the failed delete request ID as the key, and a list of observations that failed as the value.
         """
+        num_actioned_delete_requests = 0
+        failed_delete_requests = defaultdict(list)
+
         for delete_request_id in delete_requests:
             self.logger.info(f"Reviewing delete request {delete_request_id}.")
 
@@ -291,23 +299,51 @@ class DeleteProcessor(Processor):
 
                 if len(obs_files) > 0:
                     self.logger.info(f"obs_id {obs_id} has {len(obs_files)} files that are not deleted.")
+
                     delete_request_has_missing_files = True
+                    failed_delete_requests[delete_request_id].append(obs_id)
                 else:
                     self.logger.info(f"Updating obs_id {obs_id} to deleted.")
+
                     self.repository.set_obs_id_to_deleted(obs_id)
 
             if not delete_request_has_missing_files:
                 self.logger.info(f"Updating delete request {delete_request_id} to actioned.")
+
                 self.repository.set_delete_request_to_actioned(delete_request_id)
+                num_actioned_delete_requests += 1
+
+        return num_actioned_delete_requests, failed_delete_requests
+
+    def _print_summary(self, delete_requests: dict, num_actioned_delete_requests: int, failed_delete_requests: dict) -> None:
+        """
+        Logs a summary of what was processed.
+
+        Parameters
+        ----------
+        delete_requests: int
+            The delete requests structure described above
+        num_actioned_delete_requests: int
+            The number of delete requests that were actioned
+        failed_delete_requests: int
+            Dictionary of which delete request IDs failed (and their corresponding observations)
+        """
+        self.logger.info(f"Delete requests to process: {len(delete_requests.keys())}.")
+        self.logger.info(f"Delete requests actioned:   {num_actioned_delete_requests}.")
+
+        for failed_delete_request in failed_delete_requests.keys():
+            self.logger.info(f"Delete request {failed_delete_request} was not actioned. The following observations were not deleted: {failed_delete_requests[failed_delete_request]}.")
 
     def run(self) -> None:
+        """
+        Main workflow. Does the processing bit of the processor.
+        """
         self.logger.info("Starting delete processor.")
 
         files, delete_requests = self._generate_data_structures()
-
         self._process_file_structure(files)
-
-        self._process_delete_requests(delete_requests)
+        num_actioned_delete_requests, failed_delete_requests = self._process_delete_requests(delete_requests)
+        self._print_summary(delete_requests, num_actioned_delete_requests, failed_delete_requests)
 
 
 class ProcessorFactory():

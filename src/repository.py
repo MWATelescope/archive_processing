@@ -169,8 +169,22 @@ class Repository():
             raise error
 
     def ws_request(self, url: str, data: dict) -> dict:
+        """
+        Send a post request to webservices.
+
+        Parameters
+        ----------
+        url: str
+            URL relative to the base as defined in the config file. Should be prefixed with a /
+        data: dict
+            Data dictionary to send with the request
+
+        Returns
+        -------
+        JSON response from the server
+        """
         try:
-            response = requests.post(f"{self.config.get('webservices', 'url')}{url}", data=data)
+            response = requests.post(f"{self.config.get('webservices', 'url')}{url}", json=data)
 
             if response.status_code != 200:
                 raise Exception(f"Webservices request failed. Got status code {response.status_code}.")
@@ -207,23 +221,6 @@ class DeleteRepository(Repository):
         else:
             return []
 
-    def ws_get_delete_requests(self) -> dict:
-        """
-        Function to get all of the not-cancelled, approved, not actioned delete requests, including their obs_ids
-
-        Returns
-        -------
-        Dictionary of delete requests, including their obs_ids
-        """
-        data = {
-            'not_cancelled': True,
-            'not_approved': False,
-            'not_actioned': True,
-            'omit_obsids': False
-        }
-
-        return self.ws_request("/get_deletion_requests", data)
-
     def get_obs_ids_for_delete_request(self, delete_request_id: int) -> list:
         """
         Function to return a list of obs_ids associated with a given delete request
@@ -250,6 +247,29 @@ class DeleteRepository(Repository):
             return [r["obs_id"] for r in results]
         else:
             return []
+
+    def validate_obsids(self, obs_ids: list) -> list:
+        """
+        Function to validate a given list of obs_ids, ensuring that they are eligible to be deleted.
+        Anything that is a calibrator, or in an existing collection is invalid.
+
+        Parameters
+        ----------
+        obs_ids: list
+            The list of obs_ids to validate
+
+        Returns
+        -------
+        list:
+            A list of obs_ids which are ineligible to be deleted.
+        """
+
+        data = {
+            "obsids": obs_ids,
+            "with_reasons": False
+        }
+
+        return self.ws_request('/validate_obsids', data)
 
     def get_not_deleted_obs_data_files_except_ppds(self, obs_id: int) -> list:
         """
@@ -352,18 +372,3 @@ class DeleteRepository(Repository):
         # Execute query
         params = (delete_request_id,)
         self.run_sql_update(sql, params)
-
-    def ws_set_delete_request_to_actioned(self, delete_request_id: int) -> None:
-        """
-        Function to mark a delete request as actioned, given its id.
-
-        Parameters
-        ----------
-        delete_request_id: int
-            The id of the delete request which will be marked as actioned.
-        """
-        data = {
-            'request_id': delete_request_id
-        }
-
-        self.ws_request('/set_deletion_actioned', data)
