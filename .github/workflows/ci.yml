@@ -15,7 +15,7 @@ jobs:
       postgres:
         image: postgres
         env:
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ""
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -34,4 +34,4 @@ jobs:
       - name: Run tests
         run: |
           cd src
-          python -m pytest
+          pipenv run pytest
