@@ -20,6 +20,8 @@ def load_database(**kwargs):
     # Used for github actions
     if os.getenv('POSTGRES_HOST'):
         kwargs['host'] = os.getenv('POSTGRES_HOST')
+    if os.getenv('POSTGRES_PASSWORD'):
+        kwargs['host'] = os.getenv('POSTGRES_PASSWORD')
 
     db_connection: Connection = psycopg.connect(**kwargs)
 

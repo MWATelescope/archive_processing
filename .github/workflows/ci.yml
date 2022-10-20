@@ -15,7 +15,7 @@ jobs:
       postgres:
         image: postgres
         env:
-          POSTGRES_PASSWORD: ""
+          POSTGRES_PASSWORD: postgres
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -31,6 +31,7 @@ jobs:
           pipenv install --dev
         env:
           POSTGRES_HOST: postgres
+          POSTGRES_PASSWORD: postgres
       - name: Run tests
         run: |
           cd src
