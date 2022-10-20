@@ -5,11 +5,8 @@ name = "pypi"
 
 [packages]
 psycopg = "*"
-psycopg_pool = "*"
 boto3 = "*"
-astropy = "*"
 moto = "*"
-responses = "*"
 
 [dev-packages]
 pytest = "*"

@@ -17,6 +17,10 @@ from processor import DeleteProcessor, ProcessorFactory
 
 
 def load_database(**kwargs):
+    # Used for github actions
+    if os.getenv('POSTGRES_HOST'):
+        kwargs['host'] = os.getenv('POSTGRES_HOST')
+
     db_connection: Connection = psycopg.connect(**kwargs)
 
     with db_connection.cursor() as cur:

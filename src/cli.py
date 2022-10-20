@@ -1,5 +1,5 @@
-import sys
 import argparse
+import sys
 
 
 def parse_arguments(args: list = sys.argv[1:]) -> argparse.Namespace:
