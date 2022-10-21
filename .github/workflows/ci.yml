@@ -6,7 +6,7 @@ name: Tests
 on:
   push:
     branches: [refactor, master]
-  pull-request:
+  pull_request:
     branches: [refactor, master]
 
 runs-on: self-hosted
