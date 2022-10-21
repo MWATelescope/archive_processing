@@ -9,11 +9,9 @@ on:
   pull_request:
     branches: [refactor, master]
 
-runs-on: self-hosted
-
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     container: python:3.10
     services:
       postgres:
