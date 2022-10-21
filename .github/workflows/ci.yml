@@ -5,7 +5,11 @@ name: Tests
 
 on:
   push:
-    branches: [refactor]
+    branches: [refactor, master]
+  pull-request:
+    branches: [refactor, master]
+
+runs-on: self-hosted
 
 jobs:
   test:
