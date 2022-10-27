@@ -78,7 +78,7 @@ class DeleteProcessor(Processor):
 
         try:
             self.logger.info("Connecting to database.")
-            self.repository = DeleteRepository(self.config, connection)
+            self.repository = DeleteRepository(self.config, connection, self.dry_run)
         except Exception as e:
             self.logger.error("Could not connect to database.")
             self.logger.error(e)

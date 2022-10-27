@@ -21,8 +21,9 @@ class MWAFileTypeFlags(Enum):
 
 
 class Repository():
-    def __init__(self, config: ConfigParser, connection: Connection | None):
+    def __init__(self, config: ConfigParser, connection: Connection | None, dry_run: bool = False):
         self.config = config
+        self.dry_run = dry_run
         self.conn = self._setup_conn(connection)
 
         if connection is None:
@@ -127,6 +128,9 @@ class Repository():
         args: tuple
             Arguments which will be substituted into the sql string.
         """
+        if self.dry_run:
+            return
+
         try:
             with self.conn.transaction():
                 with self.conn.cursor() as cur:
@@ -156,6 +160,9 @@ class Repository():
         *args:
             Arguments for the provided fun
         """
+        if self.dry_run:
+            return
+
         try:
             with self.conn.transaction():
                 with ClientCursor(self.conn) as cur:
@@ -195,8 +202,8 @@ class Repository():
 
 
 class DeleteRepository(Repository):
-    def __init__(self, config: ConfigParser, connection: Connection):
-        super().__init__(config, connection)
+    def __init__(self, config: ConfigParser, connection: Connection, dry_run: bool = False):
+        super().__init__(config, connection, dry_run)
 
     def get_delete_requests(self) -> list:
         """
