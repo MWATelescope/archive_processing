@@ -129,6 +129,9 @@ class Repository():
             Arguments which will be substituted into the sql string.
         """
         if self.dry_run:
+            print("Would have ran the below SQL with args:")
+            print(sql)
+            print(args)
             return
 
         try:
@@ -161,6 +164,9 @@ class Repository():
             Arguments for the provided fun
         """
         if self.dry_run:
+            print("Would have ran the below SQL with args:")
+            print(sql)
+            print(args)
             return
 
         try:
