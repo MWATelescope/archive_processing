@@ -44,7 +44,7 @@ class Repository():
 
         dsn = f"postgresql://{db_config['user']}:{db_config['pass']}@{db_config['host']}:{db_config['port']}/{db_config['name']}"
 
-        return psycopg.connect(dsn, cursor_factory=dict_row, autocommit=True)
+        return psycopg.connect(dsn, row_factory=dict_row, autocommit=True)
 
     def _close(self) -> None:
         """
