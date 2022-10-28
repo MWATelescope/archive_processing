@@ -3,6 +3,7 @@ CREATE TABLE deletion_requests (
   created_datetime time DEFAULT NOW(),
   cancelled_datetime time DEFAULT NULL,
   actioned_datetime time DEFAULT NULL,
+  approved_datetime time DEFAULT NOW(),
   request_name varchar(20)
 );
 
