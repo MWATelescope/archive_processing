@@ -254,7 +254,7 @@ class DeleteProcessor(Processor):
                     keys_to_delete.append(key)
                     counter += 1
 
-                    if counter == self.config.get('processing', 'batch_size'):
+                    if counter == self.config.getint('processing', 'batch_size'):
                         # Delete in batches of 1000
                         self._batch_delete_objects(location, bucket, keys_to_delete)
                         keys_to_delete = []
