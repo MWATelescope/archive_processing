@@ -160,6 +160,7 @@ class DeleteProcessor(Processor):
             return
         else:
             self.logger.info(f"Deleting {len(keys_to_delete)} files from {locations[location]}:{bucket}.")
+            self.logger.info(keys_to_delete)
 
         # If this fails, should we exit? 🤔
         self.repository.update_files_to_deleted(self._bucket_delete_keys, bucket_object, keys_to_delete)
