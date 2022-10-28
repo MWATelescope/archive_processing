@@ -224,6 +224,7 @@ class DeleteRepository(Repository):
                 FROM deletion_requests
                 WHERE cancelled_datetime IS NULL
                 AND actioned_datetime IS NULL
+                AND approved_datetime IS NOT NULL
                 ORDER BY created_datetime"""
 
         params = None
