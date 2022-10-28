@@ -258,6 +258,7 @@ class DeleteProcessor(Processor):
                         # Delete in batches of 1000
                         self._batch_delete_objects(location, bucket, keys_to_delete)
                         keys_to_delete = []
+                        counter = 0
 
                 # Delete any that are left!
                 if keys_to_delete:
