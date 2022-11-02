@@ -8,6 +8,7 @@ from collections import defaultdict
 from configparser import ConfigParser
 
 import boto3
+from botocore.config import Config
 from psycopg import Connection
 
 from repository import DeleteRepository
@@ -130,20 +131,24 @@ class DeleteProcessor(Processor):
             sys.exit(0)
 
         try:
+            config = Config(connect_timeout=5, retries={"mode": "standard"})
+
             match locations[location]:
                 case 'acacia':
                     s3 = boto3.resource(
                         's3',
                         aws_access_key_id=self.config.get('acacia', 'aws_access_key_id'),
                         aws_secret_access_key=self.config.get('acacia', 'aws_secret_access_key'),
-                        endpoint_url=self.config.get('acacia', 'endpoint_url')
+                        endpoint_url=self.config.get('acacia', 'endpoint_url'),
+                        config=config
                     )
                 case 'banksia':
                     s3 = boto3.resource(
                         's3',
                         aws_access_key_id=self.config.get('banksia', 'aws_access_key_id'),
                         aws_secret_access_key=self.config.get('banksia', 'aws_secret_access_key'),
-                        endpoint_url=self.config.get('banksia', 'endpoint_url')
+                        endpoint_url=self.config.get('banksia', 'endpoint_url'),
+                        config=config
                     )
                 case _:
                     raise ValueError(f"Invalid location found {location}.")

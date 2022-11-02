@@ -1,12 +1,14 @@
 .idea/
 archive_processing.egg-info/
 build/
+cfg
 cfg/offline_compress.cfg
 cfg/test_processor*.cfg
 cfg/delete_processor.cfg
 cfg/delete_vcs_raw_processor.cfg
 cfg/flag_archiver.cfg
 cfg/delete_request_processor.cfg
+cfg/config.cfg
 dist/
 env/
 logs/

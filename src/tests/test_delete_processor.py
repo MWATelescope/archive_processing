@@ -42,7 +42,7 @@ def aws_credentials():
     os.environ['AWS_SECURITY_TOKEN'] = 'testing'
     os.environ['AWS_SESSION_TOKEN'] = 'testing'
     os.environ['AWS_DEFAULT_REGION'] = 'us-east-1'
-    os.environ["MOTO_S3_CUSTOM_ENDPOINTS"] = "https://ingest.pawsey.org.au,https://vss-1.pawsey.org.au"
+    os.environ["MOTO_S3_CUSTOM_ENDPOINTS"] = "https://ingest.pawsey.org.au,https://vss-1.pawsey.org.au:9000"
 
 
 @pytest.fixture
