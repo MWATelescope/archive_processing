@@ -48,7 +48,7 @@ def aws_credentials():
 
 @pytest.fixture
 def delete_processor(postgresql):
-    args_list = ['delete']
+    args_list = ['delete', '--cfg=../cfg/config_sample.cfg']
     args = parse_arguments(args=args_list)
     config = read_config(args.cfg)
     dsn = get_dsn(config)

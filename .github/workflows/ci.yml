@@ -36,4 +36,4 @@ jobs:
       - name: Run tests
         run: |
           cd src
-          pipenv run pytest --postgresql-password=postgres --postgresql-host=postgres --cfg=../cfg/config_sample.cfg
+          pipenv run pytest --postgresql-password=postgres --postgresql-host=postgres
