@@ -1,5 +1,6 @@
+import sys
 import atexit
-from configparser import ConfigParser
+import logging
 from enum import Enum
 from typing import Callable
 
@@ -7,6 +8,8 @@ import psycopg
 import requests
 from psycopg import ClientCursor, Connection
 from psycopg.rows import dict_row
+
+logger = logging.getLogger()
 
 
 class MWAFileTypeFlags(Enum):
@@ -21,31 +24,26 @@ class MWAFileTypeFlags(Enum):
 
 
 class Repository():
-    def __init__(self, config: ConfigParser, connection: Connection | None, dry_run: bool = False):
-        self.config = config
+    def __init__(self, dsn: str | None = None, connection: Connection | None = None, webservices_url: str | None = None, dry_run: bool = False):
         self.dry_run = dry_run
-        self.conn = self._setup_conn(connection)
+        self.webservices_url = webservices_url
+        self.conn = self._setup_conn(dsn, connection)
 
         if connection is None:
             # Test database will close cleanly causing this to fail, so need to check if our connection was initially None or not.
             atexit.register(self._close)
 
-    def _setup_conn(self, connection: Connection | None) -> Connection:
+    def _setup_conn(self, dsn: str | None, connection: Connection | None) -> Connection:
         # Optionally pass in an existing psycopg3 connection. Otherwise look in the supplied config file and make a new one.
         if connection is not None:
             return connection
 
-        db_config = {
-            'host': self.config.get("database", "host"),
-            'port': self.config.get("database", "port"),
-            'name': self.config.get("database", "db"),
-            'user': self.config.get("database", "user"),
-            'pass': self.config.get("database", "pass"),
-        }
-
-        dsn = f"postgresql://{db_config['user']}:{db_config['pass']}@{db_config['host']}:{db_config['port']}/{db_config['name']}"
-
-        return psycopg.connect(dsn, row_factory=dict_row, autocommit=True)
+        try:
+            logger.info("Connecting to database.")
+            return psycopg.connect(dsn, row_factory=dict_row, autocommit=True)
+        except Exception:
+            logger.error("Could not connect to database.")
+            sys.exit(1)
 
     def _close(self) -> None:
         """
@@ -129,9 +127,9 @@ class Repository():
             Arguments which will be substituted into the sql string.
         """
         if self.dry_run:
-            print("Would have ran the below SQL with args:")
-            print(sql)
-            print(args)
+            logger.info("Would have ran the below SQL with args:")
+            logger.info(sql)
+            logger.info(args)
             return
 
         try:
@@ -164,9 +162,9 @@ class Repository():
             Arguments for the provided fun
         """
         if self.dry_run:
-            print("Would have ran the below SQL with args:")
-            print(sql)
-            print(args)
+            logger.info("Would have ran the below SQL with args:")
+            logger.info(sql)
+            logger.info(args)
             return
 
         try:
@@ -197,7 +195,7 @@ class Repository():
         JSON response from the server
         """
         try:
-            response = requests.post(f"{self.config.get('webservices', 'url')}{url}", json=data)
+            response = requests.post(f"{self.webservices_url}{url}", json=data)
 
             if response.status_code != 200:
                 raise Exception(f"Webservices request failed. Got status code {response.status_code}.")
@@ -208,8 +206,8 @@ class Repository():
 
 
 class DeleteRepository(Repository):
-    def __init__(self, config: ConfigParser, connection: Connection, dry_run: bool = False):
-        super().__init__(config, connection, dry_run)
+    def __init__(self, dsn: str | None = None, connection: Connection | None = None, webservices_url: str | None = None, dry_run: bool = False):
+        super().__init__(dsn=dsn, connection=connection, webservices_url=webservices_url, dry_run=dry_run)
 
     def get_delete_requests(self) -> list:
         """

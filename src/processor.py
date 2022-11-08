@@ -3,13 +3,11 @@ import os
 import signal
 import sys
 from abc import ABC, abstractmethod
-from argparse import Namespace
 from collections import defaultdict
 from configparser import ConfigParser
 
 import boto3
 from botocore.config import Config
-from psycopg import Connection
 
 from repository import DeleteRepository
 
@@ -18,54 +16,22 @@ locations = {
     3: 'banksia'
 }
 
+logger = logging.getLogger()
+
 
 class Processor(ABC):
-    def __init__(self, args: Namespace, connection: Connection | None):
-        self.verbose = args.verbose
-        self.dry_run = args.dry_run
-        self.logger = logging.getLogger()
-        self.config = self._read_config(args.cfg)
+    def __init__(self, dry_run: bool = False):
+        self.dry_run = dry_run
         self.terminate = False
 
         if self.dry_run:
-            self.logger.info("Dry run enabled.")
-
-        if self.verbose:
-            self.logger.setLevel(logging.INFO)
-        else:
-            self.logger.setLevel(logging.WARN)
+            logger.info("Dry run enabled.")
 
         for sig in [signal.SIGINT]:
             signal.signal(sig, self._signal_handler)
 
-    def _read_config(self, file_name: str) -> ConfigParser:
-        """
-        Parameters
-        ----------
-        file_name: str
-            Path to a config file.
-
-        Returns
-        -------
-        ConfigParser
-            ConfigParser object with parsed information from file.
-        """
-
-        self.logger.info("Parsing config file.")
-
-        config = ConfigParser()
-
-        try:
-            with open(file_name) as f:
-                config.read_file(f)
-
-            return config
-        except (IOError, FileNotFoundError):
-            self.logger.error("Could not parse config file.")
-            sys.exit(1)
-
     def _signal_handler(self, sig, frame):
-        self.logger.info(f"Interrupted! Received signal {sig}.")
+        logger.info(f"Interrupted! Received signal {sig}.")
         self.terminate = True
 
     @abstractmethod
@@ -74,16 +40,33 @@ class Processor(ABC):
 
 
 class DeleteProcessor(Processor):
-    def __init__(self, args: ConfigParser, connection: Connection):
-        super().__init__(args, connection)
+    def __init__(self, repository: DeleteRepository, delete_request_ids: str = None, dry_run: bool = False, config: ConfigParser = None):
+        super().__init__(dry_run)
+        self.config = config
+        self.delete_request_ids = self._set_initial_delete_request_ids(delete_request_ids)
+        self.repository = repository
+
+    def _set_initial_delete_request_ids(self, ids: str | None) -> list | None:
+        """
+        Given an --ids parameter from the command line, parse it into a list of integers.
+
+        Parameters
+        ----------
+        ids:
+            A user-supplied, comma separated string of the request_ids which should be processed.
+
+        Returns
+        -------
+            A list of integers, represeting the delete_request_ids that the user has asked to be processed.
+        """
+        if ids is None:
+            return None
 
         try:
-            self.logger.info("Connecting to database.")
-            self.repository = DeleteRepository(self.config, connection, self.dry_run)
-        except Exception as e:
-            self.logger.error("Could not connect to database.")
-            self.logger.error(e)
-            sys.exit(1)
+            ids_list = list(map(int, ids))
+            return ids_list
+        except ValueError:
+            raise ValueError("Supplied invalid request ID.")
 
     def _bucket_delete_keys(self, bucket, keys: list[str]) -> list[list]:
         """
@@ -127,7 +110,7 @@ class DeleteProcessor(Processor):
 
         # If we've received a signal, do not process this batch and exit. Allows in progress batches to complete execution
         if self.terminate:
-            self.logger.warn("Exiting.")
+            logger.warn("Exiting.")
             sys.exit(0)
 
         try:
@@ -156,16 +139,16 @@ class DeleteProcessor(Processor):
             bucket_object = s3.Bucket(bucket)
 
         except Exception as e:
-            self.logger.warning(f"Could not connect to {location}:{bucket}.")
-            self.logger.warning(e)
+            logger.warning(f"Could not connect to {location}:{bucket}.")
+            logger.warning(e)
             raise
 
         if self.dry_run:
-            self.logger.info(f"Would have deleted {len(keys_to_delete)} files from {locations[location]}:{bucket}.")
+            logger.info(f"Would have deleted {len(keys_to_delete)} files from {locations[location]}:{bucket}.")
             return
         else:
-            self.logger.info(f"Deleting {len(keys_to_delete)} files from {locations[location]}:{bucket}.")
-            self.logger.info(keys_to_delete)
+            logger.info(f"Deleting {len(keys_to_delete)} files from {locations[location]}:{bucket}.")
+            logger.info(keys_to_delete)
 
         # If this fails, should we exit? 🤔
         self.repository.update_files_to_deleted(self._bucket_delete_keys, bucket_object, keys_to_delete)
@@ -198,39 +181,46 @@ class DeleteProcessor(Processor):
                 delete_request_id_2: [obs_id_3, obs_id_4]
             }
         """
-        delete_requests_ids = self.repository.get_delete_requests()
+        
+        # If the user has supplied delete requests via the CLI, use those. Otherwise, fetch them from the repository.
+        delete_requests_ids = self.delete_request_ids if self.delete_request_ids is not None else self.repository.get_delete_requests()
         num_delete_requests = len(delete_requests_ids)
 
-        self.logger.info(f"Found {num_delete_requests} delete requests.")
+        logger.info(f"Found {num_delete_requests} delete requests.")
 
-        files = defaultdict(lambda: defaultdict(set))
         delete_requests = defaultdict(list)
+        files = defaultdict(lambda: defaultdict(set))
 
         for index, delete_request_id in enumerate(delete_requests_ids):
             obs_ids = self.repository.get_obs_ids_for_delete_request(delete_request_id)
+
+            if not obs_ids:
+                logger.info(f"Delete request ID {delete_request_id} does not contain any obs_ids.")
+                sys.exit(0)
+
             invalid_obs_ids = self.repository.validate_obsids(obs_ids)
 
-            self.logger.info(f"Processing delete request ({index + 1}/{num_delete_requests}).")
-            self.logger.info(f"Delete request {delete_request_id} contains {len(obs_ids)} obs_ids.")
+            logger.info(f"Processing delete request ({index + 1}/{num_delete_requests}).")
+            logger.info(f"Delete request {delete_request_id} contains {len(obs_ids)} obs_ids.")
 
             if invalid_obs_ids:
                 # Shouldn't happen, but catching the case where an observation was added to a collection after the delete request was created
-                self.logger.error(f"Delete request {delete_request_id} contains observations that cannot be deleted. Please check and try again.")
+                logger.error(f"Delete request {delete_request_id} contains observations that cannot be deleted. Please check and try again.")
                 sys.exit(0)
 
             for index, obs_id in enumerate(obs_ids):
                 obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(obs_id)
                 delete_requests[delete_request_id].append(obs_id)
 
-                self.logger.info(f"Processing obs_id {obs_id} ({index + 1}/{len(obs_ids)}).")
-                self.logger.info(f"obs_id {obs_id} contains {len(obs_files)} files.")
+                logger.info(f"Processing obs_id {obs_id} ({index + 1}/{len(obs_ids)}).")
+                logger.info(f"obs_id {obs_id} contains {len(obs_files)} files.")
 
                 for index, file in enumerate(obs_files):
-                    self.logger.info(f"Processing file {index + 1}/{len(obs_files)}")
+                    logger.info(f"Processing file {index + 1}/{len(obs_files)}")
 
                     files[file['location']][file['bucket']].add(file['key'])
 
-        self.logger.info(f"Found files to delete in {len(files.keys())} locations.")
+        logger.info(f"Found files to delete in {len(files.keys())} locations.")
 
         return files, delete_requests
 
@@ -246,15 +236,15 @@ class DeleteProcessor(Processor):
         for index, location in enumerate(files.keys()):
             buckets = files[location]
 
-            self.logger.info(f"Location {location} contains {len(buckets)} buckets with deleteable files.")
-            self.logger.info(f"Processing location {index + 1}/{len(files.keys())}")
+            logger.info(f"Location {location} contains {len(buckets)} buckets with deleteable files.")
+            logger.info(f"Processing location {index + 1}/{len(files.keys())}")
 
             for bucket in buckets:
                 keys = files[location][bucket]
                 keys_to_delete = []
                 counter = 0
 
-                self.logger.info(f"Bucket {bucket} contains {len(keys)} files to be deleted.")
+                logger.info(f"Bucket {bucket} contains {len(keys)} files to be deleted.")
 
                 for key in keys:
                     keys_to_delete.append(key)
@@ -292,30 +282,30 @@ class DeleteProcessor(Processor):
         failed_delete_requests = defaultdict(list)
 
         for delete_request_id in delete_requests:
-            self.logger.info(f"Reviewing delete request {delete_request_id}.")
+            logger.info(f"Reviewing delete request {delete_request_id}.")
 
             delete_request_has_missing_files = False
 
             for obs_id in delete_requests[delete_request_id]:
 
                 if self.terminate:
-                    self.logger.warn("Exiting.")
+                    logger.warn("Exiting.")
                     sys.exit(0)
 
                 obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(obs_id)
 
                 if len(obs_files) > 0:
-                    self.logger.info(f"obs_id {obs_id} has {len(obs_files)} files that are not deleted.")
+                    logger.info(f"obs_id {obs_id} has {len(obs_files)} files that are not deleted.")
 
                     delete_request_has_missing_files = True
                     failed_delete_requests[delete_request_id].append(obs_id)
                 else:
-                    self.logger.info(f"Updating obs_id {obs_id} to deleted.")
+                    logger.info(f"Updating obs_id {obs_id} to deleted.")
 
                     self.repository.set_obs_id_to_deleted(obs_id)
 
             if not delete_request_has_missing_files:
-                self.logger.info(f"Updating delete request {delete_request_id} to actioned.")
+                logger.info(f"Updating delete request {delete_request_id} to actioned.")
 
                 self.repository.set_delete_request_to_actioned(delete_request_id)
                 num_actioned_delete_requests += 1
@@ -335,33 +325,19 @@ class DeleteProcessor(Processor):
         failed_delete_requests: int
             Dictionary of which delete request IDs failed (and their corresponding observations)
         """
-        self.logger.info(f"Delete requests to process: {len(delete_requests.keys())}.")
-        self.logger.info(f"Delete requests actioned:   {num_actioned_delete_requests}.")
+        logger.info(f"Delete requests to process: {len(delete_requests.keys())}.")
+        logger.info(f"Delete requests actioned:   {num_actioned_delete_requests}.")
 
         for failed_delete_request in failed_delete_requests.keys():
-            self.logger.info(f"Delete request {failed_delete_request} was not actioned. The following observations were not deleted: {failed_delete_requests[failed_delete_request]}.")
+            logger.info(f"Delete request {failed_delete_request} was not actioned. The following observations were not deleted: {failed_delete_requests[failed_delete_request]}.")
 
     def run(self) -> None:
         """
         Main workflow. Does the processing bit of the processor.
         """
-        self.logger.info("Starting delete processor.")
+        logger.info("Starting delete processor.")
 
         files, delete_requests = self._generate_data_structures()
         self._process_file_structure(files)
         num_actioned_delete_requests, failed_delete_requests = self._process_delete_requests(delete_requests)
         self._print_summary(delete_requests, num_actioned_delete_requests, failed_delete_requests)
-
-
-class ProcessorFactory():
-    def __init__(self, args: Namespace, connection: Connection | None = None):
-        self.args = args
-        self.connection = connection
-
-    def get_processor(self) -> Processor:
-        subcommand = self.args.subcommand
-        match subcommand:
-            case 'delete':
-                return DeleteProcessor(self.args, self.connection)
-            case _:
-                raise ValueError(f"Missing or invalid subcommand {subcommand}.")

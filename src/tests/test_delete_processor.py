@@ -12,8 +12,9 @@ from pytest_postgresql import factories
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 file_path = os.path.abspath(os.path.dirname(__file__))
 
-from cli import parse_arguments
-from processor import DeleteProcessor, ProcessorFactory
+from main import parse_arguments, get_dsn, read_config
+from processor import DeleteProcessor
+from repository import DeleteRepository
 
 
 def load_database(**kwargs):
@@ -49,9 +50,11 @@ def aws_credentials():
 def delete_processor(postgresql):
     args_list = ['delete']
     args = parse_arguments(args=args_list)
+    config = read_config(args.cfg)
+    dsn = get_dsn(config)
 
-    processor_factory = ProcessorFactory(args, connection=postgresql)
-    return processor_factory.get_processor()
+    repository = DeleteRepository(dsn=dsn, connection=postgresql, webservices_url=config.get('webservices', 'url'), dry_run=args.dry_run)
+    return DeleteProcessor(repository=repository, dry_run=args.dry_run, config=config)
 
 
 def setup_buckets(postgresql):
@@ -82,19 +85,6 @@ def test_parse_args():
     assert (args.verbose)
     assert (args.dry_run)
     assert (args.cfg == 'test')
-
-
-def test_processor_factory(postgresql):
-    args_list = ['delete', '--verbose', '--dry_run']
-
-    args = parse_arguments(args=args_list)
-
-    processor_factory = ProcessorFactory(args, connection=postgresql)
-    processor = processor_factory.get_processor()
-
-    assert (isinstance(processor, DeleteProcessor))
-    assert (processor.verbose)
-    assert (processor.dry_run)
 
 
 def test_generate_data_structures(delete_processor):
