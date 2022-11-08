@@ -63,7 +63,7 @@ class DeleteProcessor(Processor):
             return None
 
         try:
-            ids_list = list(map(int, ids))
+            ids_list = list(map(int, ids.split(',')))
             return ids_list
         except ValueError:
             raise ValueError("Supplied invalid request ID.")
