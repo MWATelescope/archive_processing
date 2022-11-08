@@ -193,11 +193,6 @@ class DeleteProcessor(Processor):
 
         for index, delete_request_id in enumerate(delete_requests_ids):
             obs_ids = self.repository.get_obs_ids_for_delete_request(delete_request_id)
-
-            if not obs_ids:
-                logger.info(f"Delete request ID {delete_request_id} does not contain any obs_ids.")
-                sys.exit(0)
-
             invalid_obs_ids = self.repository.validate_obsids(obs_ids)
 
             logger.info(f"Processing delete request ({index + 1}/{num_delete_requests}).")
