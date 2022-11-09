@@ -106,12 +106,16 @@ def main() -> None:
 
     match args.subcommand:
         case 'delete':
-            repository = DeleteRepository(dsn=dsn, connection=None, webservices_url=config.get('webservices', 'url'), dry_run=args.dry_run)
-            processor = DeleteProcessor(repository=repository, delete_request_ids=args.ids, dry_run=args.dry_run, config=config)
+            repository = DeleteRepository(dsn=dsn, webservices_url=config.get('webservices', 'url'), dry_run=args.dry_run)
+            processor = DeleteProcessor(repository=repository, dry_run=args.dry_run, config=config)
+
+            if args.ids is not None:
+                processor.run(args.ids)
+            else:
+                processor.run()
+
         case _:
             raise ValueError(f"Missing or invalid subcommand {args.subcommand}.")
-
-    processor.run()
 
 
 if __name__ == "__main__":

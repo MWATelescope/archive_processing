@@ -40,13 +40,12 @@ class Processor(ABC):
 
 
 class DeleteProcessor(Processor):
-    def __init__(self, repository: DeleteRepository, delete_request_ids: str = None, dry_run: bool = False, config: ConfigParser = None):
+    def __init__(self, repository: DeleteRepository, dry_run: bool = False, config: ConfigParser = None):
         super().__init__(dry_run)
         self.config = config
-        self.delete_request_ids = self._set_initial_delete_request_ids(delete_request_ids)
         self.repository = repository
 
-    def _set_initial_delete_request_ids(self, ids: str | None) -> list | None:
+    def _parse_ids(self, ids: str | None) -> list | None:
         """
         Given an --ids parameter from the command line, parse it into a list of integers.
 
@@ -153,12 +152,17 @@ class DeleteProcessor(Processor):
         # If this fails, should we exit? 🤔
         self.repository.update_files_to_deleted(self._bucket_delete_keys, bucket_object, keys_to_delete)
 
-    def _generate_data_structures(self) -> dict:
+    def _generate_data_structures(self, delete_request_ids: list[int] | None = None) -> dict:
         """
         Algorithm to generate two data structures which will later be processed.
         Foreach delete request:
             Foreach obs_id in delete request:
                 Foreach file (location, bucket, key) in obs_id
+
+        Parameters
+        ----------
+        delete_request_ids: list[int]
+            An optional list of delete request IDs
 
         Returns
         ----------
@@ -183,15 +187,15 @@ class DeleteProcessor(Processor):
         """
         
         # If the user has supplied delete requests via the CLI, use those. Otherwise, fetch them from the repository.
-        delete_requests_ids = self.delete_request_ids if self.delete_request_ids is not None else self.repository.get_delete_requests()
-        num_delete_requests = len(delete_requests_ids)
+        delete_request_ids = delete_request_ids if delete_request_ids is not None else self.repository.get_delete_requests()
+        num_delete_requests = len(delete_request_ids)
 
         logger.info(f"Found {num_delete_requests} delete requests.")
 
         delete_requests = defaultdict(list)
         files = defaultdict(lambda: defaultdict(set))
 
-        for index, delete_request_id in enumerate(delete_requests_ids):
+        for index, delete_request_id in enumerate(delete_request_ids):
             obs_ids = self.repository.get_obs_ids_for_delete_request(delete_request_id)
             invalid_obs_ids = self.repository.validate_obsids(obs_ids)
 
@@ -255,7 +259,7 @@ class DeleteProcessor(Processor):
                 if keys_to_delete:
                     self._batch_delete_objects(location, bucket, keys_to_delete)
 
-    def _process_delete_requests(self, delete_requests: dict) -> tuple[int, dict]:
+    def _review_delete_requests(self, delete_requests: dict) -> tuple[int, dict]:
         """
         Iterates through the delete_requests dict (described above).
         Check with obs_id had all of its files deleted, and marks the observation itself as deleted.
@@ -326,13 +330,21 @@ class DeleteProcessor(Processor):
         for failed_delete_request in failed_delete_requests.keys():
             logger.info(f"Delete request {failed_delete_request} was not actioned. The following observations were not deleted: {failed_delete_requests[failed_delete_request]}.")
 
-    def run(self) -> None:
+    def run(self, cli_ids: list[int] | None = None) -> None:
         """
         Main workflow. Does the processing bit of the processor.
+        Will process CLI supplied delete_request IDs if they are given. If not, will fetch them from the database.
         """
         logger.info("Starting delete processor.")
 
-        files, delete_requests = self._generate_data_structures()
+        if cli_ids is not None:
+            delete_request_ids = self._parse_ids(cli_ids)
+            files, delete_requests = self._generate_data_structures(delete_request_ids)
+        else:
+            files, delete_requests = self._generate_data_structures()
+
         self._process_file_structure(files)
-        num_actioned_delete_requests, failed_delete_requests = self._process_delete_requests(delete_requests)
+
+        num_actioned_delete_requests, failed_delete_requests = self._review_delete_requests(delete_requests)
+
         self._print_summary(delete_requests, num_actioned_delete_requests, failed_delete_requests)
