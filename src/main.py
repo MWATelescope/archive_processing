@@ -93,7 +93,7 @@ def main() -> None:
     Entrypoint of the application. Parses command line arguments,
     passes them to a processor_factory to get a processor, and runs it.
     """
-    logging.basicConfig(format='[%(asctime)s %(levelname)s] %(message)s')
+    logging.basicConfig(format='[%(asctime)s %(levelname)s] %(message)s', stream=sys.stdout)
 
     args = parse_arguments()
     config = read_config(args.cfg)
