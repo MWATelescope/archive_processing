@@ -249,7 +249,7 @@ class DeleteRepository(Repository):
         if optional_request_id_list:
             sql = """SELECT id
                     FROM deletion_requests
-                    WHERE id IN (%s)
+                    WHERE id ANY(%s)
                     AND cancelled_datetime IS NULL
                     AND actioned_datetime IS NULL
                     AND approved_datetime IS NOT NULL
