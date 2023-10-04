@@ -11,10 +11,7 @@ from botocore.config import Config
 
 from repository import DeleteRepository
 
-locations = {
-    2: 'acacia',
-    3: 'banksia'
-}
+locations = {2: "acacia", 3: "banksia"}
 
 logger = logging.getLogger()
 
@@ -40,7 +37,12 @@ class Processor(ABC):
 
 
 class DeleteProcessor(Processor):
-    def __init__(self, repository: DeleteRepository, dry_run: bool = False, config: ConfigParser = None):
+    def __init__(
+        self,
+        repository: DeleteRepository,
+        dry_run: bool = False,
+        config: ConfigParser = None,
+    ):
         super().__init__(dry_run)
         self.config = config
         self.repository = repository
@@ -62,7 +64,7 @@ class DeleteProcessor(Processor):
             return None
 
         try:
-            ids_list = list(map(int, ids.split(',')))
+            ids_list = list(map(int, ids.split(",")))
             return ids_list
         except ValueError:
             raise ValueError("Supplied invalid request ID.")
@@ -84,16 +86,16 @@ class DeleteProcessor(Processor):
         A list of filenames which were deleted from the bucket.
         """
         response = bucket.delete_objects(
-            Delete={
-                'Objects': [{'Key': key} for key in keys]
-            }
+            Delete={"Objects": [{"Key": key} for key in keys]}
         )
 
         deleted_objects = response["Deleted"]
         deleted_keys = [deleted_object["Key"] for deleted_object in deleted_objects]
         return [[os.path.split(key)[-1] for key in deleted_keys]]
 
-    def _batch_delete_objects(self, location: int, bucket: str, keys_to_delete: list[str]) -> None:
+    def _batch_delete_objects(
+        self, location: int, bucket: str, keys_to_delete: list[str]
+    ) -> None:
         """
         For a given file location, bucket within that location, and list of keys - delete those keys from the file.
 
@@ -116,21 +118,29 @@ class DeleteProcessor(Processor):
             config = Config(connect_timeout=5, retries={"mode": "standard"})
 
             match locations[location]:
-                case 'acacia':
+                case "acacia":
                     s3 = boto3.resource(
-                        's3',
-                        aws_access_key_id=self.config.get('acacia', 'aws_access_key_id'),
-                        aws_secret_access_key=self.config.get('acacia', 'aws_secret_access_key'),
-                        endpoint_url=self.config.get('acacia', 'endpoint_url'),
-                        config=config
+                        "s3",
+                        aws_access_key_id=self.config.get(
+                            "acacia", "aws_access_key_id"
+                        ),
+                        aws_secret_access_key=self.config.get(
+                            "acacia", "aws_secret_access_key"
+                        ),
+                        endpoint_url=self.config.get("acacia", "endpoint_url"),
+                        config=config,
                     )
-                case 'banksia':
+                case "banksia":
                     s3 = boto3.resource(
-                        's3',
-                        aws_access_key_id=self.config.get('banksia', 'aws_access_key_id'),
-                        aws_secret_access_key=self.config.get('banksia', 'aws_secret_access_key'),
-                        endpoint_url=self.config.get('banksia', 'endpoint_url'),
-                        config=config
+                        "s3",
+                        aws_access_key_id=self.config.get(
+                            "banksia", "aws_access_key_id"
+                        ),
+                        aws_secret_access_key=self.config.get(
+                            "banksia", "aws_secret_access_key"
+                        ),
+                        endpoint_url=self.config.get("banksia", "endpoint_url"),
+                        config=config,
                     )
                 case _:
                     raise ValueError(f"Invalid location found {location}.")
@@ -143,16 +153,26 @@ class DeleteProcessor(Processor):
             raise
 
         if self.dry_run:
-            logger.info(f"Would have deleted {len(keys_to_delete)} files from {locations[location]}:{bucket}.")
+            logger.info(
+                f"Would have deleted {len(keys_to_delete)} files from"
+                f" {locations[location]}:{bucket}."
+            )
             return
         else:
-            logger.info(f"Deleting {len(keys_to_delete)} files from {locations[location]}:{bucket}.")
+            logger.info(
+                f"Deleting {len(keys_to_delete)} files from"
+                f" {locations[location]}:{bucket}."
+            )
             logger.info(keys_to_delete)
 
         # If this fails, should we exit? 🤔
-        self.repository.update_files_to_deleted(self._bucket_delete_keys, bucket_object, keys_to_delete)
+        self.repository.update_files_to_deleted(
+            self._bucket_delete_keys, bucket_object, keys_to_delete
+        )
 
-    def _generate_data_structures(self, delete_request_ids: list[int] | None = None) -> dict:
+    def _generate_data_structures(
+        self, delete_request_ids: list[int] | None = None
+    ) -> dict:
         """
         Algorithm to generate two data structures which will later be processed.
         Foreach delete request:
@@ -185,9 +205,12 @@ class DeleteProcessor(Processor):
                 delete_request_id_2: [obs_id_3, obs_id_4]
             }
         """
-        
-        # If the user has supplied delete requests via the CLI, use those. Otherwise, fetch them from the repository.
-        delete_request_ids = delete_request_ids if delete_request_ids is not None else self.repository.get_delete_requests()
+
+        # If the user has supplied delete requests via the CLI, use those, but still run them through
+        # the get_delete_requests function so that only ids which are approved, not cancelled and not actioned
+        # are actioned. Otherwise, fetch them from the repository.
+        delete_request_ids = self.repository.get_delete_requests(delete_request_ids)
+
         num_delete_requests = len(delete_request_ids)
 
         logger.info(f"Found {num_delete_requests} delete requests.")
@@ -199,16 +222,25 @@ class DeleteProcessor(Processor):
             obs_ids = self.repository.get_obs_ids_for_delete_request(delete_request_id)
             invalid_obs_ids = self.repository.validate_obsids(obs_ids)
 
-            logger.info(f"Processing delete request ({index + 1}/{num_delete_requests}).")
-            logger.info(f"Delete request {delete_request_id} contains {len(obs_ids)} obs_ids.")
+            logger.info(
+                f"Processing delete request ({index + 1}/{num_delete_requests})."
+            )
+            logger.info(
+                f"Delete request {delete_request_id} contains {len(obs_ids)} obs_ids."
+            )
 
             if invalid_obs_ids:
                 # Shouldn't happen, but catching the case where an observation was added to a collection after the delete request was created
-                logger.error(f"Delete request {delete_request_id} contains observations that cannot be deleted. Please check and try again.")
+                logger.error(
+                    f"Delete request {delete_request_id} contains observations that"
+                    " cannot be deleted. Please check and try again."
+                )
                 sys.exit(0)
 
             for index, obs_id in enumerate(obs_ids):
-                obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(obs_id)
+                obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(
+                    obs_id
+                )
                 delete_requests[delete_request_id].append(obs_id)
 
                 logger.info(f"Processing obs_id {obs_id} ({index + 1}/{len(obs_ids)}).")
@@ -217,7 +249,7 @@ class DeleteProcessor(Processor):
                 for index, file in enumerate(obs_files):
                     logger.info(f"Processing file {index + 1}/{len(obs_files)}")
 
-                    files[file['location']][file['bucket']].add(file['key'])
+                    files[file["location"]][file["bucket"]].add(file["key"])
 
         logger.info(f"Found files to delete in {len(files.keys())} locations.")
 
@@ -235,7 +267,10 @@ class DeleteProcessor(Processor):
         for index, location in enumerate(files.keys()):
             buckets = files[location]
 
-            logger.info(f"Location {location} contains {len(buckets)} buckets with deleteable files.")
+            logger.info(
+                f"Location {location} contains {len(buckets)} buckets with deleteable"
+                " files."
+            )
             logger.info(f"Processing location {index + 1}/{len(files.keys())}")
 
             for bucket in buckets:
@@ -243,13 +278,15 @@ class DeleteProcessor(Processor):
                 keys_to_delete = []
                 counter = 0
 
-                logger.info(f"Bucket {bucket} contains {len(keys)} files to be deleted.")
+                logger.info(
+                    f"Bucket {bucket} contains {len(keys)} files to be deleted."
+                )
 
                 for key in keys:
                     keys_to_delete.append(key)
                     counter += 1
 
-                    if counter == self.config.getint('processing', 'batch_size'):
+                    if counter == self.config.getint("processing", "batch_size"):
                         # Delete in batches of 1000
                         self._batch_delete_objects(location, bucket, keys_to_delete)
                         keys_to_delete = []
@@ -286,15 +323,19 @@ class DeleteProcessor(Processor):
             delete_request_has_missing_files = False
 
             for obs_id in delete_requests[delete_request_id]:
-
                 if self.terminate:
                     logger.warn("Exiting.")
                     sys.exit(0)
 
-                obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(obs_id)
+                obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(
+                    obs_id
+                )
 
                 if len(obs_files) > 0:
-                    logger.info(f"obs_id {obs_id} has {len(obs_files)} files that are not deleted.")
+                    logger.info(
+                        f"obs_id {obs_id} has {len(obs_files)} files that are not"
+                        " deleted."
+                    )
 
                     delete_request_has_missing_files = True
                     failed_delete_requests[delete_request_id].append(obs_id)
@@ -311,7 +352,12 @@ class DeleteProcessor(Processor):
 
         return num_actioned_delete_requests, failed_delete_requests
 
-    def _print_summary(self, delete_requests: dict, num_actioned_delete_requests: int, failed_delete_requests: dict) -> None:
+    def _print_summary(
+        self,
+        delete_requests: dict,
+        num_actioned_delete_requests: int,
+        failed_delete_requests: dict,
+    ) -> None:
         """
         Logs a summary of what was processed.
 
@@ -328,7 +374,11 @@ class DeleteProcessor(Processor):
         logger.info(f"Delete requests actioned:   {num_actioned_delete_requests}.")
 
         for failed_delete_request in failed_delete_requests.keys():
-            logger.info(f"Delete request {failed_delete_request} was not actioned. The following observations were not deleted: {failed_delete_requests[failed_delete_request]}.")
+            logger.info(
+                f"Delete request {failed_delete_request} was not actioned. The"
+                " following observations were not deleted:"
+                f" {failed_delete_requests[failed_delete_request]}."
+            )
 
     def run(self, cli_ids: list[int] | None = None) -> None:
         """
@@ -345,6 +395,11 @@ class DeleteProcessor(Processor):
 
         self._process_file_structure(files)
 
-        num_actioned_delete_requests, failed_delete_requests = self._review_delete_requests(delete_requests)
+        (
+            num_actioned_delete_requests,
+            failed_delete_requests,
+        ) = self._review_delete_requests(delete_requests)
 
-        self._print_summary(delete_requests, num_actioned_delete_requests, failed_delete_requests)
+        self._print_summary(
+            delete_requests, num_actioned_delete_requests, failed_delete_requests
+        )

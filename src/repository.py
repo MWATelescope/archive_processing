@@ -23,8 +23,14 @@ class MWAFileTypeFlags(Enum):
     MWAX_VISIBILITIES = 18
 
 
-class Repository():
-    def __init__(self, dsn: str | None = None, connection: Connection | None = None, webservices_url: str | None = None, dry_run: bool = False):
+class Repository:
+    def __init__(
+        self,
+        dsn: str | None = None,
+        connection: Connection | None = None,
+        webservices_url: str | None = None,
+        dry_run: bool = False,
+    ):
         self.dry_run = dry_run
         self.webservices_url = webservices_url
         self.conn = self._setup_conn(dsn, connection)
@@ -198,7 +204,10 @@ class Repository():
             response = requests.post(f"{self.webservices_url}{url}", json=data)
 
             if response.status_code != 200:
-                raise Exception(f"Webservices request failed. Got status code {response.status_code}.")
+                raise Exception(
+                    "Webservices request failed. Got status code"
+                    f" {response.status_code}."
+                )
             else:
                 return response.json()
         except Exception:
@@ -206,26 +215,57 @@ class Repository():
 
 
 class DeleteRepository(Repository):
-    def __init__(self, dsn: str | None = None, connection: Connection | None = None, webservices_url: str | None = None, dry_run: bool = False):
-        super().__init__(dsn=dsn, connection=connection, webservices_url=webservices_url, dry_run=dry_run)
+    def __init__(
+        self,
+        dsn: str | None = None,
+        connection: Connection | None = None,
+        webservices_url: str | None = None,
+        dry_run: bool = False,
+    ):
+        super().__init__(
+            dsn=dsn,
+            connection=connection,
+            webservices_url=webservices_url,
+            dry_run=dry_run,
+        )
 
-    def get_delete_requests(self) -> list:
+    def get_delete_requests(
+        self, optional_request_id_list: list[int] | None = None
+    ) -> list:
         """
         Function to return a list of all not-cancelled unactioned delete request ids.
+
+        Parameters
+        ----------
+        optional_request_id_list: list[int]
+            An optional list of id's to delete. If None assume ALL will be processed
 
         Returns
         -------
         list:
             List of delete request ids
         """
-        sql = """SELECT id
-                FROM deletion_requests
-                WHERE cancelled_datetime IS NULL
-                AND actioned_datetime IS NULL
-                AND approved_datetime IS NOT NULL
-                ORDER BY created_datetime"""
 
-        params = None
+        if optional_request_id_list:
+            sql = """SELECT id
+                    FROM deletion_requests
+                    WHERE id IN (%s)
+                    AND cancelled_datetime IS NULL
+                    AND actioned_datetime IS NULL
+                    AND approved_datetime IS NOT NULL
+                    ORDER BY created_datetime"""
+
+            params = (optional_request_id_list,)
+        else:
+            sql = """SELECT id
+                    FROM deletion_requests
+                    WHERE cancelled_datetime IS NULL
+                    AND actioned_datetime IS NULL
+                    AND approved_datetime IS NOT NULL
+                    ORDER BY created_datetime"""
+
+            params = None
+
         results = self.run_sql_get_many_rows(sql, params)
 
         if results:
@@ -276,12 +316,9 @@ class DeleteRepository(Repository):
             A list of obs_ids which are ineligible to be deleted.
         """
 
-        data = {
-            "obsids": obs_ids,
-            "with_reasons": False
-        }
+        data = {"obsids": obs_ids, "with_reasons": False}
 
-        return self.ws_request('/validate_obsids', data)
+        return self.ws_request("/validate_obsids", data)
 
     def get_not_deleted_obs_data_files_except_ppds(self, obs_id: int) -> list:
         """
@@ -316,17 +353,19 @@ class DeleteRepository(Repository):
         if results:
             return [
                 {
-                    'location': r["location"],
-                    'bucket': r["bucket"],
-                    'key': r["key"],
-                    'filename': r["filename"],
+                    "location": r["location"],
+                    "bucket": r["bucket"],
+                    "key": r["key"],
+                    "filename": r["filename"],
                 }
                 for r in results
             ]
         else:
             return []
 
-    def update_files_to_deleted(self, delete_func: Callable, bucket, keys: list) -> None:
+    def update_files_to_deleted(
+        self, delete_func: Callable, bucket, keys: list
+    ) -> None:
         """
         Given a provided function to actually delete files, an S3 bucket, and a list of keys:
         Determine filenames from the list of keys.
