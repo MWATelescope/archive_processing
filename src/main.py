@@ -4,8 +4,8 @@ import logging
 
 from configparser import ConfigParser
 
-from processor import DeleteProcessor
-from repository import DeleteRepository
+from delete_processor import DeleteProcessor
+from delete_repository import DeleteRepository
 
 logger = logging.getLogger()
 
