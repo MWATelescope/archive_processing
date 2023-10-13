@@ -7,7 +7,7 @@ from collections import defaultdict
 from configparser import ConfigParser
 from mwa_utils import locations
 from processor import Processor
-from repository import DeleteRepository
+from delete_repository import DeleteRepository
 
 logger = logging.getLogger()
 
