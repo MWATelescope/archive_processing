@@ -26,7 +26,7 @@ def parse_arguments(args: list = sys.argv[1:]) -> argparse.Namespace:
         Namespace object with parsed arguments.
     """
     parser = argparse.ArgumentParser()
-    subparsers = parser.add_subparsers(dest='subcommand')
+    subparsers = parser.add_subparsers(dest="subcommand")
 
     delete_parser = subparsers.add_parser("delete")
 
@@ -78,14 +78,16 @@ def get_dsn(config: ConfigParser) -> str:
         DSN string which can be used to connect to the database.
     """
     db = {
-        'host': config.get("database", "host"),
-        'port': config.get("database", "port"),
-        'name': config.get("database", "db"),
-        'user': config.get("database", "user"),
-        'pass': config.get("database", "pass"),
+        "host": config.get("database", "host"),
+        "port": config.get("database", "port"),
+        "name": config.get("database", "db"),
+        "user": config.get("database", "user"),
+        "pass": config.get("database", "pass"),
     }
 
-    return f"postgresql://{db['user']}:{db['pass']}@{db['host']}:{db['port']}/{db['name']}"
+    return (
+        f"postgresql://{db['user']}:{db['pass']}@{db['host']}:{db['port']}/{db['name']}"
+    )
 
 
 def main() -> None:
@@ -93,7 +95,9 @@ def main() -> None:
     Entrypoint of the application. Parses command line arguments,
     passes them to a processor_factory to get a processor, and runs it.
     """
-    logging.basicConfig(format='[%(asctime)s %(levelname)s] %(message)s', stream=sys.stdout)
+    logging.basicConfig(
+        format="[%(asctime)s %(levelname)s] %(message)s", stream=sys.stdout
+    )
 
     args = parse_arguments()
     config = read_config(args.cfg)
@@ -105,9 +109,15 @@ def main() -> None:
         logger.setLevel(logging.WARN)
 
     match args.subcommand:
-        case 'delete':
-            repository = DeleteRepository(dsn=dsn, webservices_url=config.get('webservices', 'url'), dry_run=args.dry_run)
-            processor = DeleteProcessor(repository=repository, dry_run=args.dry_run, config=config)
+        case "delete":
+            repository = DeleteRepository(
+                dsn=dsn,
+                webservices_url=config.get("webservices", "url"),
+                dry_run=args.dry_run,
+            )
+            processor = DeleteProcessor(
+                repository=repository, dry_run=args.dry_run, config=config
+            )
 
             if args.ids is not None:
                 processor.run(args.ids)
