@@ -1,4 +1,6 @@
+import datetime
 from enum import Enum
+from astropy.time import Time
 
 locations = {2: "acacia", 3: "banksia"}
 
@@ -12,3 +14,9 @@ class MWAFileTypeFlags(Enum):
     VOLTAGE_RECOMBINED_ARCHIVE_FILE = 16
     MWAX_VOLTAGES = 17
     MWAX_VISIBILITIES = 18
+
+
+def get_gpstime(date_time: datetime.datetime) -> int:
+    gpstime = Time(date_time)
+    gpstime.format = "gps"
+    return gpstime.value

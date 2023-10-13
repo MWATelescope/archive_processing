@@ -1,11 +1,13 @@
 import sys
 import argparse
 import logging
-
 from configparser import ConfigParser
-
 from delete_processor import DeleteProcessor
 from delete_repository import DeleteRepository
+from incomplete_processor import IncompleteProcessor
+from incomplete_repository import IncompleteRepository
+from mwa_utils import locations
+
 
 logger = logging.getLogger()
 
@@ -34,6 +36,15 @@ def parse_arguments(args: list = sys.argv[1:]) -> argparse.Namespace:
     delete_parser.add_argument("--cfg", default="../cfg/config.cfg")
     delete_parser.add_argument("--dry_run", action="store_true")
     delete_parser.add_argument("--verbose", "-v", action="store_true", default=True)
+
+    incomplete_parser = subparsers.add_parser("incomplete")
+
+    incomplete_parser.add_argument("--cfg", default="../cfg/config.cfg")
+    incomplete_parser.add_argument(
+        "--location", choices=[locations[2], locations[3]], required=True
+    )
+    incomplete_parser.add_argument("--dry_run", action="store_true")
+    incomplete_parser.add_argument("--verbose", "-v", action="store_true", default=True)
 
     return parser.parse_args(args)
 
@@ -104,9 +115,9 @@ def main() -> None:
     dsn = get_dsn(config)
 
     if args.verbose:
-        logger.setLevel(logging.INFO)
+        logger.setLevel(logging.DEBUG)
     else:
-        logger.setLevel(logging.WARN)
+        logger.setLevel(logging.INFO)
 
     match args.subcommand:
         case "delete":
@@ -123,6 +134,15 @@ def main() -> None:
                 processor.run(args.ids)
             else:
                 processor.run()
+
+        case "incomplete":
+            repository = IncompleteRepository(dsn=dsn, dry_run=args.dry_run)
+
+            processor = IncompleteProcessor(
+                repository=repository, dry_run=args.dry_run, config=config
+            )
+
+            processor.run(args.location)
 
         case _:
             raise ValueError(f"Missing or invalid subcommand {args.subcommand}.")
