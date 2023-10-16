@@ -33,6 +33,12 @@ class IncompleteFile:
         # This is the location of the file once we've downloaded it
         self.temp_filename = None
 
+        # Checksum from database
+        self.checksum_db = None
+
+        # Checksum from file
+        self.checksum_file = None
+
     def __repr__(self):
         return f"key={self.key}; bucket={self.bucket}, filename={self.filename}"
 
@@ -48,21 +54,26 @@ class IncompleteProcessor(Processor):
         self.config = config
         self.repository = repository
 
-    def _get_incomplete_uploads(self) -> list:
+    def _get_incomplete_uploads(self) -> list[IncompleteFile]:
         """
         Runs `mc ls --incomplete {alias}` to get a list of filenames which have incomplete uploads
 
         {alias} refers to the mc alias (run `mc alias ls`) - i.e. Acacia or Banksia to check against.
         """
-        cmd = f"{self.minio_client_path} ls --incomplete {self.minio_client_alias}"
-
-        logger.info(f"Running {cmd}")
+        cmd = (
+            f"{self.minio_client_path} ls --incomplete"
+            f" {self.minio_client_alias}/mwaingest-13790/1379067616_20230918101958_ch059_000.fits"
+        )
 
         (success, stdout) = run_command_ext(
             logger=logger, command=cmd, numa_node=-1, timeout=180, use_shell=True
         )
 
         if success:
+            stdout = (
+                "[2023-10-16 11:03:35 AEDT]     0B"
+                " mwaingest-13790/1379067616_20230918101958_ch059_000.fits"
+            )
             # If success but stdout is empty it means nothing is incomplete
             if stdout.lstrip().rstrip() == "":
                 return []
@@ -93,6 +104,73 @@ class IncompleteProcessor(Processor):
             logger.error(f"Error executing mc- {stdout}")
             exit(-1)
 
+    def _get_checksum_from_database(self, incomplete_file: IncompleteFile):
+        incomplete_file.checksum_db = self.repository.get_data_file_checksum(
+            incomplete_file.filename
+        )
+
+        logger.debug(
+            f"Database md5 checksum of {incomplete_file.filename} is"
+            f" {incomplete_file.checksum_db}"
+        )
+
+    def _download_file(self, incomplete_file: IncompleteFile):
+        # Append the incomplete filename to the temp_data_path
+        incomplete_file.temp_filename = os.path.join(
+            self.temp_data_path, incomplete_file.filename
+        )
+
+        # Assemble the download command
+        copy_cmd = (
+            f"{self.minio_client_path} cp"
+            f" {self.minio_client_alias}/{incomplete_file.key} {incomplete_file.temp_filename}"
+        )
+
+        if self.dry_run:
+            logger.info(f"Would have run: {copy_cmd}")
+        else:
+            (success, stdout) = run_command_ext(
+                logger=logger,
+                command=copy_cmd,
+                numa_node=-1,
+                timeout=600,
+                use_shell=True,
+            )
+
+            if not success:
+                raise Exception(
+                    f"Error downloading file from {incomplete_file.key}: {stdout}"
+                )
+
+    def _get_checksum_from_file(self, incomplete_file: IncompleteFile):
+        # Assemble the checksum command
+        md5_cmd = f"md5sum {incomplete_file.filename}"
+
+        if self.dry_run:
+            logger.info(f"Would have run: {md5_cmd}")
+        else:
+            (success, stdout) = run_command_ext(
+                logger=logger,
+                command=md5_cmd,
+                numa_node=-1,
+                timeout=180,
+                use_shell=True,
+            )
+
+            if success:
+                # If success but stdout is empty it means something went wrong
+                if stdout.lstrip().rstrip() == "":
+                    raise Exception(
+                        f"Error getting md5 checksum from {incomplete_file.key}: no"
+                        " checksum returned"
+                    )
+                else:
+                    incomplete_file.checksum_file = stdout
+            else:
+                raise Exception(
+                    f"Error getting md5 checksum from {incomplete_file.key}: {stdout}"
+                )
+
     def run(self, location: str) -> None:
         """
         Main workflow. Does the processing bit of the processor.
@@ -110,52 +188,38 @@ class IncompleteProcessor(Processor):
         # Get the minio aliases
         self.minio_client_alias = self.config.get(self.location, "minio_client_alias")
 
+        # Set location to temporarily download file to
+        self.temp_data_path = self.config.get("incomplete_processor", "temp_data_path")
+        if not os.path.exists(self.temp_data_path):
+            logger.error(
+                f"temp_data_path {self.temp_data_path} does not exist. Exiting"
+            )
+            exit(-1)
+
         logger.info(f"Checking {self.location} for incomplete uploads...")
         incomplete_files = self._get_incomplete_uploads()
         logger.info(f"{len(incomplete_files)} incomplete files found")
 
         #
-        # For each file, retrieve the checksum from database
+        # For each file:
+        # * retrieve the checksum from database
+        # * download the file
+        # * perform a checksum on the file
+        # * compare
+        # * if it's a match then we can safely remove the incomplete file
         #
         for incomplete_file in incomplete_files:
-            incomplete_file.checksum = self.repository.get_data_file_checksum(
-                incomplete_file.filename
-            )
-            logger.debug(
-                f"Database md5 checksum of {incomplete_file.filename} is"
-                f" {incomplete_file.checksum}"
-            )
+            self._get_checksum_from_database(incomplete_file)
 
-        #
-        # For each file, download the file
-        #
-        self.temp_data_path = self.config.get("incomplete_processor", "temp_data_path")
+            self._download_file(incomplete_file)
 
-        for incomplete_file in incomplete_files:
-            # Append the incomplete filename to the temp_data_path
-            incomplete_file.temp_filename = os.path.join(
-                os.path.join(self.temp_data_path, "/"), incomplete_file.filename
-            )
+            self._get_checksum_from_file(incomplete_file)
 
-            # Assemble the download command
-            copy_cmd = (
-                f"{self.minio_client_path} cp"
-                f" {self.minio_client_alias}/{incomplete_file.key} {incomplete_file.temp_filename}"
-            )
-
-            if self.dry_run:
-                logger.info(f"Would have run: {copy_cmd}")
+            # Print the result
+            if incomplete_file.checksum_db != incomplete_file.checksum_file:
+                logger.error(
+                    f"Checksum (DB) {incomplete_file.checksum_db} does not match"
+                    f" Checksum (file) {incomplete_file.checksum_file}"
+                )
             else:
-                logger.info(f"{copy_cmd}")
-
-        #
-        # For each file, calculate checksum
-        #
-        for incomplete_file in incomplete_files:
-            # Assemble the checksum command
-            md5_cmd = f"md5sum {incomplete_file.filename}"
-
-            if self.dry_run:
-                logger.info(f"Would have run: {md5_cmd}")
-            else:
-                logger.info(f"{md5_cmd}")
+                logger.info("Checksums match")
