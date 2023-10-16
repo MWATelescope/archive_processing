@@ -39,6 +39,9 @@ class IncompleteFile:
         # Checksum from file
         self.checksum_file = None
 
+        # Flag to set if we are complete
+        self.completed = False
+
     def __repr__(self):
         return f"key={self.key}; bucket={self.bucket}, filename={self.filename}"
 
@@ -60,20 +63,13 @@ class IncompleteProcessor(Processor):
 
         {alias} refers to the mc alias (run `mc alias ls`) - i.e. Acacia or Banksia to check against.
         """
-        cmd = (
-            f"{self.minio_client_path} ls --incomplete"
-            f" {self.minio_client_alias}/mwaingest-13790/1379067616_20230918101958_ch059_000.fits"
-        )
+        cmd = f"{self.minio_client_path} ls --incomplete {self.minio_client_alias}"
 
         (success, stdout) = run_command_ext(
             logger=logger, command=cmd, numa_node=-1, timeout=180, use_shell=True
         )
 
         if success:
-            stdout = (
-                "[2023-10-16 11:03:35 AEDT]     0B"
-                " mwaingest-13790/1379067616_20230918101958_ch059_000.fits"
-            )
             # If success but stdout is empty it means nothing is incomplete
             if stdout.lstrip().rstrip() == "":
                 return []
@@ -185,6 +181,34 @@ class IncompleteProcessor(Processor):
                     f"Error getting md5 checksum from {incomplete_file.key}: {stdout}"
                 )
 
+    def _rm_incomplete_upload(self, incomplete_file: IncompleteFile):
+        # Assemble the rm incomplete command
+        cmd = (
+            f"{self.minio_client_path} rm --incomplete"
+            f" {self.minio_client_alias}/{incomplete_file.key}"
+        )
+
+        if self.dry_run:
+            logger.info(f"Would have run: {cmd}")
+        else:
+            (success, stdout) = run_command_ext(
+                logger=logger,
+                command=cmd,
+                numa_node=-1,
+                timeout=180,
+                use_shell=True,
+            )
+
+            if success:
+                logger.info(
+                    f"SUCCESS - incomplete upload on {incomplete_file.key} removed."
+                )
+            else:
+                raise Exception(
+                    "Error: could not remove incomplete upload on"
+                    f" {incomplete_file.key}"
+                )
+
     def run(self, location: str) -> None:
         """
         Main workflow. Does the processing bit of the processor.
@@ -236,4 +260,24 @@ class IncompleteProcessor(Processor):
                     f" Checksum (file) {incomplete_file.checksum_file}"
                 )
             else:
-                logger.info("Checksums match")
+                logger.info(
+                    f"Checksums match ({incomplete_file.checksum_db} vs"
+                    f" {incomplete_file.checksum_file})"
+                )
+
+                # Good! Now remove the incomplete / partial upload
+                self._rm_incomplete_upload(incomplete_file)
+                incomplete_file.completed = True
+
+        logger.info("Finished!")
+
+        success: int = 0
+
+        for incomplete_file in incomplete_files:
+            if incomplete_file.completed:
+                success += 1
+
+        logger.info(f"Incomplete files processed: {len(incomplete_files)}")
+        logger.info(f"Incomplete files successfully removed: {success}")
+        if len(incomplete_files) != success:
+            logger.info(f"Incomplete files FAILED: {len(incomplete_files)-success}")
