@@ -144,7 +144,7 @@ class IncompleteProcessor(Processor):
 
     def _get_checksum_from_file(self, incomplete_file: IncompleteFile):
         # Assemble the checksum command
-        md5_cmd = f"md5sum {incomplete_file.filename}"
+        md5_cmd = f"md5sum {incomplete_file.temp_filename}"
 
         if self.dry_run:
             logger.info(f"Would have run: {md5_cmd}")
