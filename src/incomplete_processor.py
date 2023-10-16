@@ -165,7 +165,21 @@ class IncompleteProcessor(Processor):
                         " checksum returned"
                     )
                 else:
-                    incomplete_file.checksum_file = stdout.rstrip().lstrip()
+                    # the return value will contain a few spaces and then the filename
+                    # So remove the filename and then remove any whitespace
+                    checksum = stdout.replace(
+                        incomplete_file.temp_filename, ""
+                    ).rstrip()
+
+                    # Checksum should be 32 chars
+                    if len(checksum) == 32:
+                        incomplete_file.checksum_file = checksum
+                    else:
+                        raise Exception(
+                            f"Error getting md5 checksum from {incomplete_file.key}:"
+                            " checksum returned is <> 32 characters: stdout:"
+                            f" {stdout} checksum: {checksum}"
+                        )
             else:
                 raise Exception(
                     f"Error getting md5 checksum from {incomplete_file.key}: {stdout}"
