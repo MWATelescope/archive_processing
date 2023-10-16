@@ -165,7 +165,7 @@ class IncompleteProcessor(Processor):
                         " checksum returned"
                     )
                 else:
-                    incomplete_file.checksum_file = stdout
+                    incomplete_file.checksum_file = stdout.rstrip().lstrip()
             else:
                 raise Exception(
                     f"Error getting md5 checksum from {incomplete_file.key}: {stdout}"
