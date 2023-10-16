@@ -153,6 +153,10 @@ class IncompleteProcessor(Processor):
                 use_shell=True,
             )
 
+            # No matter what remove temp file
+            logger.debug("Deleting temp file...")
+            os.remove(incomplete_file.temp_filename)
+
             if success:
                 # If success but stdout is empty it means something went wrong
                 if stdout.lstrip().rstrip() == "":
