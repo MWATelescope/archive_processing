@@ -35,7 +35,7 @@ def parse_arguments(args: list = sys.argv[1:]) -> argparse.Namespace:
     delete_parser.add_argument("--ids", type=str, default=None)
     delete_parser.add_argument("--cfg", default="../cfg/config.cfg")
     delete_parser.add_argument("--dry_run", action="store_true")
-    delete_parser.add_argument("--verbose", "-v", action="store_true", default=True)
+    delete_parser.add_argument("--verbose", "-v", action="store_true", default=False)
 
     incomplete_parser = subparsers.add_parser("incomplete")
 
@@ -44,7 +44,9 @@ def parse_arguments(args: list = sys.argv[1:]) -> argparse.Namespace:
         "--location", choices=[locations[2], locations[3]], required=True
     )
     incomplete_parser.add_argument("--dry_run", action="store_true")
-    incomplete_parser.add_argument("--verbose", "-v", action="store_true", default=True)
+    incomplete_parser.add_argument(
+        "--verbose", "-v", action="store_true", default=False
+    )
 
     return parser.parse_args(args)
 
