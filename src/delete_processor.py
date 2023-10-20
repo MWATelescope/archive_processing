@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import time
 import boto3
 from botocore.config import Config
 from collections import defaultdict
@@ -22,6 +23,9 @@ class DeleteProcessor(Processor):
         super().__init__(dry_run)
         self.config = config
         self.repository = repository
+        self.acacia_sleep_time: int = config.getint(
+            "delete_processor", "acacia_sleep_time"
+        )
 
     def _parse_ids(self, ids: str | None) -> list | None:
         """
@@ -92,7 +96,7 @@ class DeleteProcessor(Processor):
             sys.exit(0)
 
         try:
-            config = Config(connect_timeout=5, retries={"mode": "standard"})
+            config = Config(connect_timeout=60, retries={"mode": "standard"})
 
             match locations[location]:
                 case "acacia":
@@ -269,6 +273,12 @@ class DeleteProcessor(Processor):
                         self._batch_delete_objects(location, bucket, keys_to_delete)
                         keys_to_delete = []
                         counter = 0
+                        # Now sleep for a bit to allow acacia to digest the deletes
+                        if location == 2:
+                            logger.info(
+                                f"Sleeping for {self.acacia_sleep_time} seconds"
+                            )
+                            time.sleep(self.acacia_sleep_time)
 
                 # Delete any that are left!
                 if keys_to_delete:
