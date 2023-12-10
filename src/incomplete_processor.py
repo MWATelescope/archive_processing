@@ -122,68 +122,60 @@ class IncompleteProcessor(Processor):
             f" {self.minio_client_alias}/{incomplete_file.key} {incomplete_file.temp_filename}"
         )
 
-        if self.dry_run:
-            logger.info(f"Would have run: {copy_cmd}")
-        else:
-            (success, stdout) = run_command_ext(
-                logger=logger,
-                command=copy_cmd,
-                numa_node=-1,
-                timeout=600,
-                use_shell=True,
-            )
+        (success, stdout) = run_command_ext(
+            logger=logger,
+            command=copy_cmd,
+            numa_node=-1,
+            timeout=600,
+            use_shell=True,
+        )
 
-            if not success:
-                raise Exception(
-                    f"Error downloading file from {incomplete_file.key}: {stdout}"
-                )
+        if not success:
+            raise Exception(
+                f"Error downloading file from {incomplete_file.key}: {stdout}"
+            )
 
     def _get_checksum_from_file(self, incomplete_file: IncompleteFile):
         # Assemble the checksum command
         md5_cmd = f"md5sum {incomplete_file.temp_filename}"
 
-        if self.dry_run:
-            logger.info(f"Would have run: {md5_cmd}")
-        else:
-            (success, stdout) = run_command_ext(
-                logger=logger,
-                command=md5_cmd,
-                numa_node=-1,
-                timeout=180,
-                use_shell=True,
-            )
+        (success, stdout) = run_command_ext(
+            logger=logger,
+            command=md5_cmd,
+            numa_node=-1,
+            timeout=180,
+            use_shell=True,
+        )
 
-            # No matter what remove temp file
-            logger.debug("Deleting temp file...")
-            os.remove(incomplete_file.temp_filename)
+        # No matter what remove temp file
+        logger.debug("Deleting temp file...")
+        os.remove(incomplete_file.temp_filename)
 
-            if success:
-                # If success but stdout is empty it means something went wrong
-                if stdout.lstrip().rstrip() == "":
-                    raise Exception(
-                        f"Error getting md5 checksum from {incomplete_file.key}: no"
-                        " checksum returned"
-                    )
-                else:
-                    # the return value will contain a few spaces and then the filename
-                    # So remove the filename and then remove any whitespace
-                    checksum = stdout.replace(
-                        incomplete_file.temp_filename, ""
-                    ).rstrip()
-
-                    # Checksum should be 32 chars
-                    if len(checksum) == 32:
-                        incomplete_file.checksum_file = checksum
-                    else:
-                        raise Exception(
-                            f"Error getting md5 checksum from {incomplete_file.key}:"
-                            " checksum returned is <> 32 characters: stdout:"
-                            f" {stdout} checksum: {checksum}"
-                        )
-            else:
+        if success:
+            # If success but stdout is empty it means something went wrong
+            if stdout.lstrip().rstrip() == "":
                 raise Exception(
-                    f"Error getting md5 checksum from {incomplete_file.key}: {stdout}"
+                    f"Error getting md5 checksum from {incomplete_file.key}: no"
+                    " checksum returned"
                 )
+            else:
+                # the return value will contain a few spaces and then the filename
+                # So remove the filename and then remove any whitespace
+                checksum = stdout.replace(incomplete_file.temp_filename, "").rstrip()
+
+                # Checksum should be 32 chars
+                if len(checksum) == 32:
+                    incomplete_file.checksum_file = checksum
+                else:
+                    raise Exception(
+                        f"Error getting md5 checksum from {incomplete_file.key}:"
+                        " checksum returned is <> 32 characters: stdout:"
+                        f" {stdout} checksum: {checksum}"
+                    )
+        else:
+            raise Exception(
+                f"Error getting md5 checksum from {incomplete_file.key}: {stdout}"
+            )
 
     def _rm_incomplete_upload(self, incomplete_file: IncompleteFile):
         # Assemble the rm incomplete command
