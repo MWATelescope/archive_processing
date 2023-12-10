@@ -243,10 +243,17 @@ class IncompleteProcessor(Processor):
         # * if it's a match then we can safely remove the incomplete file
         #
         for incomplete_file in incomplete_files:
+            logger.debug(
+                f"Getting database checksum of {incomplete_file.temp_filename}..."
+            )
             self._get_checksum_from_database(incomplete_file)
 
+            logger.info(f"Downloading file {incomplete_file.filename}...")
             self._download_file(incomplete_file)
 
+            logger.info(
+                f"Calculating local checksum of {incomplete_file.temp_filename}..."
+            )
             self._get_checksum_from_file(incomplete_file)
 
             # Print the result
