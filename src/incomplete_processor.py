@@ -220,8 +220,12 @@ class IncompleteProcessor(Processor):
             logger.debug(f"Getting database checksum of {incomplete_file.temp_filename}...")
             self._get_checksum_from_database(incomplete_file)
 
-            logger.info(f"Downloading file {incomplete_file.filename}...")
-            self._download_file(incomplete_file)
+            try:
+                logger.info(f"Downloading file {incomplete_file.filename}...")
+                self._download_file(incomplete_file)
+            except:
+                logger.exception("Error downloading file")
+                continue
 
             logger.info(f"Calculating local checksum of {incomplete_file.temp_filename}...")
             self._get_checksum_from_file(incomplete_file)
