@@ -65,9 +65,7 @@ class IncompleteProcessor(Processor):
         """
         cmd = f"{self.minio_client_path} ls --incomplete {self.minio_client_alias}"
 
-        (success, stdout) = run_command_ext(
-            logger=logger, command=cmd, numa_node=-1, timeout=180, use_shell=True
-        )
+        (success, stdout) = run_command_ext(logger=logger, command=cmd, numa_node=-1, timeout=180, use_shell=True)
 
         if success:
             # If success but stdout is empty it means nothing is incomplete
@@ -102,19 +100,14 @@ class IncompleteProcessor(Processor):
 
     def _get_checksum_from_database(self, incomplete_file: IncompleteFile):
         incomplete_file.checksum_db = self.repository.get_data_file_checksum(
-            incomplete_file.filename
+            incomplete_file.obs_id, incomplete_file.filename
         )
 
-        logger.debug(
-            f"Database md5 checksum of {incomplete_file.filename} is"
-            f" {incomplete_file.checksum_db}"
-        )
+        logger.debug(f"Database md5 checksum of {incomplete_file.filename} is" f" {incomplete_file.checksum_db}")
 
     def _download_file(self, incomplete_file: IncompleteFile):
         # Append the incomplete filename to the temp_data_path
-        incomplete_file.temp_filename = os.path.join(
-            self.temp_data_path, incomplete_file.filename
-        )
+        incomplete_file.temp_filename = os.path.join(self.temp_data_path, incomplete_file.filename)
 
         # Assemble the download command
         copy_cmd = (
@@ -131,9 +124,7 @@ class IncompleteProcessor(Processor):
         )
 
         if not success:
-            raise Exception(
-                f"Error downloading file from {incomplete_file.key}: {stdout}"
-            )
+            raise Exception(f"Error downloading file from {incomplete_file.key}: {stdout}")
 
     def _get_checksum_from_file(self, incomplete_file: IncompleteFile):
         # Assemble the checksum command
@@ -154,10 +145,7 @@ class IncompleteProcessor(Processor):
         if success:
             # If success but stdout is empty it means something went wrong
             if stdout.lstrip().rstrip() == "":
-                raise Exception(
-                    f"Error getting md5 checksum from {incomplete_file.key}: no"
-                    " checksum returned"
-                )
+                raise Exception(f"Error getting md5 checksum from {incomplete_file.key}: no" " checksum returned")
             else:
                 # the return value will contain a few spaces and then the filename
                 # So remove the filename and then remove any whitespace
@@ -173,16 +161,11 @@ class IncompleteProcessor(Processor):
                         f" {stdout} checksum: {checksum}"
                     )
         else:
-            raise Exception(
-                f"Error getting md5 checksum from {incomplete_file.key}: {stdout}"
-            )
+            raise Exception(f"Error getting md5 checksum from {incomplete_file.key}: {stdout}")
 
     def _rm_incomplete_upload(self, incomplete_file: IncompleteFile):
         # Assemble the rm incomplete command
-        cmd = (
-            f"{self.minio_client_path} rm --incomplete"
-            f" {self.minio_client_alias}/{incomplete_file.key}"
-        )
+        cmd = f"{self.minio_client_path} rm --incomplete" f" {self.minio_client_alias}/{incomplete_file.key}"
 
         if self.dry_run:
             logger.info(f"Would have run: {cmd}")
@@ -196,14 +179,9 @@ class IncompleteProcessor(Processor):
             )
 
             if success:
-                logger.info(
-                    f"SUCCESS - incomplete upload on {incomplete_file.key} removed."
-                )
+                logger.info(f"SUCCESS - incomplete upload on {incomplete_file.key} removed.")
             else:
-                raise Exception(
-                    "Error: could not remove incomplete upload on"
-                    f" {incomplete_file.key}"
-                )
+                raise Exception("Error: could not remove incomplete upload on" f" {incomplete_file.key}")
 
     def run(self, location: str) -> None:
         """
@@ -216,18 +194,14 @@ class IncompleteProcessor(Processor):
 
         self.location = location
         # Get the minio path
-        self.minio_client_path = self.config.get(
-            "incomplete_processor", "minio_client_path"
-        )
+        self.minio_client_path = self.config.get("incomplete_processor", "minio_client_path")
         # Get the minio aliases
         self.minio_client_alias = self.config.get(self.location, "minio_client_alias")
 
         # Set location to temporarily download file to
         self.temp_data_path = self.config.get("incomplete_processor", "temp_data_path")
         if not os.path.exists(self.temp_data_path):
-            logger.error(
-                f"temp_data_path {self.temp_data_path} does not exist. Exiting"
-            )
+            logger.error(f"temp_data_path {self.temp_data_path} does not exist. Exiting")
             exit(-1)
 
         logger.info(f"Checking {self.location} for incomplete uploads...")
@@ -243,17 +217,13 @@ class IncompleteProcessor(Processor):
         # * if it's a match then we can safely remove the incomplete file
         #
         for incomplete_file in incomplete_files:
-            logger.debug(
-                f"Getting database checksum of {incomplete_file.temp_filename}..."
-            )
+            logger.debug(f"Getting database checksum of {incomplete_file.temp_filename}...")
             self._get_checksum_from_database(incomplete_file)
 
             logger.info(f"Downloading file {incomplete_file.filename}...")
             self._download_file(incomplete_file)
 
-            logger.info(
-                f"Calculating local checksum of {incomplete_file.temp_filename}..."
-            )
+            logger.info(f"Calculating local checksum of {incomplete_file.temp_filename}...")
             self._get_checksum_from_file(incomplete_file)
 
             # Print the result
@@ -263,10 +233,7 @@ class IncompleteProcessor(Processor):
                     f" Checksum (file) {incomplete_file.checksum_file}"
                 )
             else:
-                logger.info(
-                    f"Checksums match ({incomplete_file.checksum_db} vs"
-                    f" {incomplete_file.checksum_file})"
-                )
+                logger.info(f"Checksums match ({incomplete_file.checksum_db} vs" f" {incomplete_file.checksum_file})")
 
                 # Good! Now remove the incomplete / partial upload
                 self._rm_incomplete_upload(incomplete_file)

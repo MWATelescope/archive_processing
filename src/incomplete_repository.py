@@ -19,7 +19,7 @@ class IncompleteRepository(Repository):
             dry_run=dry_run,
         )
 
-    def get_data_file_checksum(self, filename: str) -> str:
+    def get_data_file_checksum(self, observation_num: int, filename: str) -> str:
         """
         Function to return checksum of archived MWA data file.
 
@@ -37,9 +37,13 @@ class IncompleteRepository(Repository):
         sql = """SELECT checksum
                 FROM data_files
                 WHERE
-                filename = %s"""
+                filename = %s AND
+                observation_num = %s"""
 
-        params = (filename,)
+        params = (
+            filename,
+            observation_num,
+        )
 
         results = self.run_sql_get_one_row(sql, params)
 
