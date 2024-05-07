@@ -1,4 +1,5 @@
 import logging
+import os
 from psycopg import Connection
 from typing import Callable
 from mwa_utils import MWAFileTypeFlags
@@ -22,9 +23,7 @@ class DeleteRepository(Repository):
             dry_run=dry_run,
         )
 
-    def get_delete_requests(
-        self, optional_request_id_list: list[int] | None = None
-    ) -> list:
+    def get_delete_requests(self, optional_request_id_list: list[int] | None = None) -> list:
         """
         Function to return a list of all not-cancelled unactioned delete request ids.
 
@@ -156,9 +155,7 @@ class DeleteRepository(Repository):
         else:
             return []
 
-    def update_files_to_deleted(
-        self, delete_func: Callable, bucket, keys: list
-    ) -> None:
+    def update_files_to_deleted(self, delete_func: Callable, bucket, keys: list) -> None:
         """
         Given a provided function to actually delete files, an S3 bucket, and a list of keys:
         Determine filenames from the list of keys.
@@ -175,12 +172,26 @@ class DeleteRepository(Repository):
         keys: list
             The list of keys in the bucket which will be deleted.
         """
+
+        # Due to data_files having a primary key on observatopm_num AND
+        # filename, we should extract the observation_num from the filenames
+        # and use that in the query
+        obsids_set = set()
+
+        # Acacia keys do not have any "folder" info e.g. xxxxxx.fits
+        # But some Banksia keys do have folder info e.g. mwa/mfa/ngas_data_volume/date/1/xxxxx.fits
+        for key in keys:
+            obsids_set.add(os.path.basename(key))
+
+        obsids_list = list(obsids_set)
+
         sql = """UPDATE data_files
                 SET deleted_timestamp = NOW()
                 WHERE deleted_timestamp IS NULL
-                AND filename = ANY(%s);"""
+                AND filename = ANY(%s)
+                AND observation_num = ANY(%s);"""
 
-        self.run_function_in_transaction(sql, delete_func, bucket, keys)
+        self.run_function_in_transaction(sql, delete_func, bucket, keys, obsids_list)
 
     def set_obs_id_to_deleted(self, obs_id: int) -> None:
         """
