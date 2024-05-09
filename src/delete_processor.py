@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import boto3
+from typing import Optional
 from botocore.config import Config
 from collections import defaultdict
 from configparser import ConfigParser
@@ -10,7 +11,7 @@ from mwa_utils import locations
 from processor import Processor
 from delete_repository import DeleteRepository
 
-logger = logging.getLogger()
+logger = logging.getLogger("archive_processing")
 
 
 class DeleteProcessor(Processor):
@@ -23,9 +24,7 @@ class DeleteProcessor(Processor):
         super().__init__(dry_run)
         self.config = config
         self.repository = repository
-        self.acacia_sleep_time: int = config.getint(
-            "delete_processor", "acacia_sleep_time"
-        )
+        self.acacia_sleep_time: int = config.getint("delete_processor", "acacia_sleep_time")
 
     def _parse_ids(self, ids: str | None) -> list | None:
         """
@@ -52,7 +51,8 @@ class DeleteProcessor(Processor):
     def _bucket_delete_keys(self, bucket, keys: list[str]) -> list[list]:
         """
         For a given bucket and list of keys to be deleted from that bucket,
-        make the S3 call to delete the corresponding objects. Then, return a list of filenames which were deleted.
+        make the S3 call to delete the corresponding objects. Then, return a list of filenames and obsids
+        which were deleted.
 
         Parameters
         ----------
@@ -65,19 +65,37 @@ class DeleteProcessor(Processor):
         -------
         A list of filenames which were deleted from the bucket.
         """
-        response = bucket.delete_objects(
-            Delete={"Objects": [{"Key": key} for key in keys]}
-        )
+        response = bucket.delete_objects(Delete={"Objects": [{"Key": key} for key in keys]})
 
         deleted_objects = response["Deleted"]
-        deleted_keys = [deleted_object["Key"] for deleted_object in deleted_objects]
-        return [[os.path.split(key)[-1] for key in deleted_keys]]
 
-    def _batch_delete_objects(
-        self, location: int, bucket: str, keys_to_delete: list[str]
-    ) -> None:
+        deleted_keys = [deleted_object["Key"] for deleted_object in deleted_objects]
+        # Get just the filenames (no paths)
+        # Acacia keys do not have any "folder" info e.g. xxxxxx.fits
+        # But some Banksia keys do have folder info e.g. mwa/mfa/ngas_data_volume/date/1/xxxxx.fits
+        deleted_filenames = [os.path.split(key)[-1] for key in deleted_keys]
+
+        # Determine a unique set of obsids from all the filenames deleted
+        #
+        # Due to data_files having a primary key on observatopm_num AND
+        # filename, we should extract the observation_num from the filenames
+        # and use that in the query
+        #
+        # We use a set as it will never store duplicates
+        obsids_set = set()
+
+        for filename in deleted_filenames:
+            # Add the obsid (which is the first 10 chars of the filename)
+            obsids_set.add(filename[0:10])
+
+        # Convert our set to a list
+        obsids_list = list(obsids_set)
+
+        return [deleted_filenames, obsids_list]
+
+    def _batch_delete_objects(self, location: int, bucket: str, keys_to_delete: list[str]) -> None:
         """
-        For a given file location, bucket within that location, and list of keys - delete those keys from the file.
+        For a given file location, bucket within that location, and list of keys - delete those keys from the location.
 
         Parameters
         ----------
@@ -102,24 +120,16 @@ class DeleteProcessor(Processor):
                 case "acacia":
                     s3 = boto3.resource(
                         "s3",
-                        aws_access_key_id=self.config.get(
-                            "acacia", "aws_access_key_id"
-                        ),
-                        aws_secret_access_key=self.config.get(
-                            "acacia", "aws_secret_access_key"
-                        ),
+                        aws_access_key_id=self.config.get("acacia", "aws_access_key_id"),
+                        aws_secret_access_key=self.config.get("acacia", "aws_secret_access_key"),
                         endpoint_url=self.config.get("acacia", "endpoint_url"),
                         config=config,
                     )
                 case "banksia":
                     s3 = boto3.resource(
                         "s3",
-                        aws_access_key_id=self.config.get(
-                            "banksia", "aws_access_key_id"
-                        ),
-                        aws_secret_access_key=self.config.get(
-                            "banksia", "aws_secret_access_key"
-                        ),
+                        aws_access_key_id=self.config.get("banksia", "aws_access_key_id"),
+                        aws_secret_access_key=self.config.get("banksia", "aws_secret_access_key"),
                         endpoint_url=self.config.get("banksia", "endpoint_url"),
                         config=config,
                     )
@@ -134,26 +144,16 @@ class DeleteProcessor(Processor):
             raise
 
         if self.dry_run:
-            logger.info(
-                f"Would have deleted {len(keys_to_delete)} files from"
-                f" {locations[location]}:{bucket}."
-            )
+            logger.info(f"Would have deleted {len(keys_to_delete)} files from" f" {locations[location]}:{bucket}.")
             return
         else:
-            logger.info(
-                f"Deleting {len(keys_to_delete)} files from"
-                f" {locations[location]}:{bucket}."
-            )
+            logger.info(f"Deleting {len(keys_to_delete)} files from" f" {locations[location]}:{bucket}.")
             logger.info(keys_to_delete)
 
         # If this fails, should we exit? 🤔
-        self.repository.update_files_to_deleted(
-            self._bucket_delete_keys, bucket_object, keys_to_delete
-        )
+        self.repository.update_files_to_deleted(self._bucket_delete_keys, bucket_object, keys_to_delete)
 
-    def _generate_data_structures(
-        self, delete_request_ids: list[int] | None = None
-    ) -> dict:
+    def _generate_data_structures(self, delete_request_ids: list[int] | None = None) -> dict:
         """
         Algorithm to generate two data structures which will later be processed.
         Foreach delete request:
@@ -200,15 +200,16 @@ class DeleteProcessor(Processor):
         files = defaultdict(lambda: defaultdict(set))
 
         for index, delete_request_id in enumerate(delete_request_ids):
+            # Check to see if there is a filetype_id specified for this delete_request
+            filetype_id: Optional[int] = self.repository.get_filetype_id_for_delete_request(delete_request_id)
+            # Get the obsids for this delete request
             obs_ids = self.repository.get_obs_ids_for_delete_request(delete_request_id)
             invalid_obs_ids = self.repository.validate_obsids(obs_ids)
 
-            logger.info(
-                f"Processing delete request ({index + 1}/{num_delete_requests})."
-            )
-            logger.info(
-                f"Delete request {delete_request_id} contains {len(obs_ids)} obs_ids."
-            )
+            logger.info(f"Processing delete request ({index + 1}/{num_delete_requests}).")
+            logger.info(f"Delete request {delete_request_id} contains {len(obs_ids)} obs_ids.")
+            if filetype_id:
+                logger.info(f"Delete request {delete_request_id} is for filetype_id {filetype_id} only.")
 
             if invalid_obs_ids:
                 # Shouldn't happen, but catching the case where an observation was added to
@@ -220,10 +221,10 @@ class DeleteProcessor(Processor):
                 sys.exit(0)
 
             for index, obs_id in enumerate(obs_ids):
-                obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(
-                    obs_id
-                )
-                delete_requests[delete_request_id].append(obs_id)
+                obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(obs_id, filetype_id)
+
+                if len(obs_files) > 0:
+                    delete_requests[delete_request_id].append(obs_id)
 
                 logger.info(f"Processing obs_id {obs_id} ({index + 1}/{len(obs_ids)}).")
                 logger.info(f"obs_id {obs_id} contains {len(obs_files)} files.")
@@ -249,10 +250,7 @@ class DeleteProcessor(Processor):
         for index, location in enumerate(files.keys()):
             buckets = files[location]
 
-            logger.info(
-                f"Location {location} contains {len(buckets)} buckets with deleteable"
-                " files."
-            )
+            logger.info(f"Location {location} contains {len(buckets)} buckets with deleteable" " files.")
             logger.info(f"Processing location {index + 1}/{len(files.keys())}")
 
             for bucket in buckets:
@@ -260,9 +258,7 @@ class DeleteProcessor(Processor):
                 keys_to_delete = []
                 counter = 0
 
-                logger.info(
-                    f"Bucket {bucket} contains {len(keys)} files to be deleted."
-                )
+                logger.info(f"Bucket {bucket} contains {len(keys)} files to be deleted.")
 
                 for key in keys:
                     keys_to_delete.append(key)
@@ -275,9 +271,7 @@ class DeleteProcessor(Processor):
                         counter = 0
                         # Now sleep for a bit to allow acacia to digest the deletes
                         if location == 2:
-                            logger.info(
-                                f"Sleeping for {self.acacia_sleep_time} seconds"
-                            )
+                            logger.info(f"Sleeping for {self.acacia_sleep_time} seconds")
                             time.sleep(self.acacia_sleep_time)
 
                 # Delete any that are left!
@@ -316,22 +310,32 @@ class DeleteProcessor(Processor):
                     logger.warn("Exiting.")
                     sys.exit(0)
 
-                obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(
-                    obs_id
-                )
+                # Check if we are deleting all or only 1 type of file from this observation
+                filetype_id: Optional[int] = self.repository.get_filetype_id_for_delete_request(delete_request_id)
+
+                obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(obs_id, filetype_id)
 
                 if len(obs_files) > 0:
-                    logger.info(
-                        f"obs_id {obs_id} has {len(obs_files)} files that are not"
-                        " deleted."
-                    )
+                    #
+                    # If the type of delete was "entire observation", then
+                    # if there are files remaining, this tells us the some deletes failed?
+                    #
+                    # If this was a "delete files of type", etc (i.e. a subset of the obs being
+                    # deleted) then this is not an error.
+                    #
+                    logger.info(f"obs_id {obs_id} has {len(obs_files)} files that are not" " deleted.")
 
                     delete_request_has_missing_files = True
                     failed_delete_requests[delete_request_id].append(obs_id)
                 else:
-                    logger.info(f"Updating obs_id {obs_id} to deleted.")
-
-                    self.repository.set_obs_id_to_deleted(obs_id)
+                    if not filetype_id:
+                        logger.info(f"Updating obs_id {obs_id} to deleted.")
+                        self.repository.set_obs_id_to_deleted(obs_id)
+                    else:
+                        logger.info(
+                            f"Filetype_id {filetype_id} specified in delete request, so NOT "
+                            f"updating obs_id {obs_id} to deleted."
+                        )
 
             if not delete_request_has_missing_files:
                 logger.info(f"Updating delete request {delete_request_id} to actioned.")
@@ -389,6 +393,4 @@ class DeleteProcessor(Processor):
             failed_delete_requests,
         ) = self._review_delete_requests(delete_requests)
 
-        self._print_summary(
-            delete_requests, num_actioned_delete_requests, failed_delete_requests
-        )
+        self._print_summary(delete_requests, num_actioned_delete_requests, failed_delete_requests)

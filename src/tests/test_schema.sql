@@ -4,18 +4,19 @@ CREATE TABLE deletion_requests (
   cancelled_datetime time DEFAULT NULL,
   actioned_datetime time DEFAULT NULL,
   approved_datetime time DEFAULT NOW(),
-  request_name varchar(20)
+  request_name varchar(20),
+  filetype_id INT NULL
 );
 
 CREATE TABLE mwa_setting (
-  starttime INT PRIMARY KEY,
+  starttime BIGINT PRIMARY KEY,
   deleted BOOLEAN DEFAULT NULL,
   deleted_timestamp time DEFAULT NULL
 );
 
 CREATE TABLE deletion_request_observation (
   request_id INT,
-  obs_id INT,
+  obs_id BIGINT,
   CONSTRAINT fk_dr
     FOREIGN KEY(request_id)
       REFERENCES deletion_requests(id) 
@@ -26,13 +27,12 @@ CREATE TABLE deletion_request_observation (
         ON DELETE SET NULL
 );
 
-CREATE TABLE data_files (
-  id SERIAL PRIMARY KEY,
+CREATE TABLE data_files (  
+  observation_num BIGINT,
+  filename VARCHAR(256),  
   location INT,
   bucket VARCHAR(20),
-  folder VARCHAR(256),
-  filename VARCHAR(256),
-  observation_num INT,
+  folder VARCHAR(256),  
   filetype INT,
   deleted BOOLEAN DEFAULT FALSE,
   deleted_timestamp time DEFAULT NULL,
@@ -40,92 +40,103 @@ CREATE TABLE data_files (
   CONSTRAINT fk_df_mwa_setting
     FOREIGN KEY(observation_num)
       REFERENCES mwa_setting(starttime)
-        ON DELETE SET NULL
+        ON DELETE SET NULL,
+  PRIMARY KEY (observation_num, filename)
 );
 
-INSERT INTO deletion_requests (request_name) 
+INSERT INTO deletion_requests (request_name, filetype_id) 
 VALUES 
-  ('abc123'), 
-  ('def456'),
-  ('ghi789');
+  ('dr1_all', NULL), 
+  ('dr2_all', NULL),
+  ('dr3_all', NULL),
+  ('dr4_subfiles', 17);
   
 INSERT INTO mwa_setting (starttime)
 VALUES
-  (11),
-  (12),
-  (13),
-  (21),
-  (22),
-  (23),
-  (31),
-  (32),
-  (33);
+  (9000000011),
+  (9000000012),
+  (9000000013),
+  (9000000021),
+  (9000000022),
+  (9000000023),
+  (9000000031),
+  (9000000032),
+  (9000000033),
+  (9000000041),
+  (9000000042);
 
 INSERT INTO data_files(observation_num, filetype, location, bucket, folder, filename)
 VALUES
-  (11, 8, 2, 'mwa01fs', '/bucket1/', '11_1.fits'),
-  (11, 8, 2, 'mwa02fs', '/bucket2/', '11_2.fits'),
-  (11, 8, 2, 'mwa03fs', '/bucket3/', '11_3.fits'),
-  (11, 8, 2, 'mwa04fs', '/bucket4/', '11_4.fits'),
-  (11, 8, 2, 'mwa01fs', '/bucket1/', '11_5.fits'),
-  (11, 8, 2, 'mwa01fs', '/bucket1/', '11_6.fits'),
-  (12, 8, 2, 'mwa02fs', '/bucket2/', '12_1.fits'),
-  (12, 8, 2, 'mwa03fs', '/bucket3/', '12_2.fits'),
-  (12, 8, 2, 'mwa04fs', '/bucket4/', '12_3.fits'),
-  (12, 8, 2, 'mwa01fs', '/bucket1/', '12_4.fits'),
-  (12, 8, 2, 'mwa02fs', '/bucket2/', '12_5.fits'),
-  (12, 8, 2, 'mwa03fs', '/bucket3/', '12_6.fits'),
-  (13, 8, 2, 'mwa04fs', '/bucket4/', '13_1.fits'),
-  (13, 8, 2, 'mwa01fs', '/bucket1/', '13_2.fits'),
-  (13, 8, 2, 'mwa02fs', '/bucket2/', '13_3.fits'),
-  (13, 8, 2, 'mwa03fs', '/bucket3/', '13_4.fits'),
-  (13, 8, 2, 'mwa03fs', '/bucket3/', '13_5.fits'),
-  (13, 8, 2, 'mwa03fs', '/bucket3/', '13_6.fits'),
-  (21, 8, 2, 'mwa04fs', '/bucket4/', '21_1.fits'),
-  (21, 8, 2, 'mwa01fs', '/bucket1/', '21_2.fits'),
-  (21, 8, 2, 'mwa02fs', '/bucket2/', '21_3.fits'),
-  (21, 8, 2, 'mwa03fs', '/bucket3/', '21_4.fits'),
-  (21, 8, 2, 'mwa04fs', '/bucket4/', '21_5.fits'),
-  (21, 8, 2, 'mwa01fs', '/bucket1/', '21_6.fits'),
-  (22, 8, 2, 'mwa01fs', '/bucket2/', '22_1.fits'),
-  (22, 8, 2, 'mwa02fs', '/bucket3/', '22_2.fits'),
-  (22, 8, 2, 'mwa03fs', '/bucket4/', '22_3.fits'),
-  (22, 8, 2, 'mwa04fs', '/bucket4/', '22_4.fits'),
-  (22, 8, 2, 'mwa01fs', '/bucket4/', '22_5.fits'),
-  (22, 8, 2, 'mwa02fs', '/bucket4/', '22_6.fits'),
-  (23, 18, 3, 'mwaingest-23', NULL, '23_1.fits'),
-  (23, 18, 3, 'mwaingest-23', NULL, '23_2.fits'),
-  (23, 18, 3, 'mwaingest-23', NULL, '23_3.fits'),
-  (23, 18, 3, 'mwaingest-23', NULL, '23_4.fits'),
-  (23, 18, 3, 'mwaingest-23', NULL, '23_5.fits'),
-  (23, 18, 3, 'mwaingest-23', NULL, '23_6.fits'),
-  (31, 18, 3, 'mwaingest-31', NULL, '31_1.fits'),
-  (31, 18, 3, 'mwaingest-31', NULL, '31_2.fits'),
-  (31, 18, 3, 'mwaingest-31', NULL, '31_3.fits'),
-  (31, 18, 3, 'mwaingest-31', NULL, '31_4.fits'),
-  (31, 18, 3, 'mwaingest-31', NULL, '31_5.fits'),
-  (31, 18, 3, 'mwaingest-31', NULL, '31_6.fits'),
-  (32, 18, 3, 'mwaingest-32', NULL, '32_1.fits'),
-  (32, 18, 3, 'mwaingest-32', NULL, '32_2.fits'),
-  (32, 18, 3, 'mwaingest-32', NULL, '32_3.fits'),
-  (32, 18, 3, 'mwaingest-32', NULL, '32_4.fits'),
-  (32, 18, 3, 'mwaingest-32', NULL, '32_5.fits'),
-  (32, 18, 3, 'mwaingest-32', NULL, '32_6.fits'),
-  (33, 18, 3, 'mwaingest-33', NULL, '33_1.fits'),
-  (33, 18, 3, 'mwaingest-33', NULL, '33_2.fits'),
-  (33, 18, 3, 'mwaingest-33', NULL, '33_3.fits'),
-  (33, 18, 3, 'mwaingest-33', NULL, '33_4.fits'),
-  (33, 18, 3, 'mwaingest-33', NULL, '33_5.fits'),
-  (33, 18, 3, 'mwaingest-33', NULL, '33_6.fits');
+  (9000000011, 8, 2, 'mwa01fs', '/bucket1/', '9000000011_1.fits'),
+  (9000000011, 8, 2, 'mwa02fs', '/bucket2/', '9000000011_2.fits'),
+  (9000000011, 8, 2, 'mwa03fs', '/bucket3/', '9000000011_3.fits'),
+  (9000000011, 8, 2, 'mwa04fs', '/bucket4/', '9000000011_4.fits'),
+  (9000000011, 8, 2, 'mwa01fs', '/bucket1/', '9000000011_5.fits'),
+  (9000000011, 8, 2, 'mwa01fs', '/bucket1/', '9000000011_6.fits'),
+  (9000000012, 8, 2, 'mwa02fs', '/bucket2/', '9000000012_1.fits'),
+  (9000000012, 8, 2, 'mwa03fs', '/bucket3/', '9000000012_2.fits'),
+  (9000000012, 8, 2, 'mwa04fs', '/bucket4/', '9000000012_3.fits'),
+  (9000000012, 8, 2, 'mwa01fs', '/bucket1/', '9000000012_4.fits'),
+  (9000000012, 8, 2, 'mwa02fs', '/bucket2/', '9000000012_5.fits'),
+  (9000000012, 8, 2, 'mwa03fs', '/bucket3/', '9000000012_6.fits'),
+  (9000000013, 8, 2, 'mwa04fs', '/bucket4/', '9000000013_1.fits'),
+  (9000000013, 8, 2, 'mwa01fs', '/bucket1/', '9000000013_2.fits'),
+  (9000000013, 8, 2, 'mwa02fs', '/bucket2/', '9000000013_3.fits'),
+  (9000000013, 8, 2, 'mwa03fs', '/bucket3/', '9000000013_4.fits'),
+  (9000000013, 8, 2, 'mwa03fs', '/bucket3/', '9000000013_5.fits'),
+  (9000000013, 8, 2, 'mwa03fs', '/bucket3/', '9000000013_6.fits'),
+  (9000000021, 8, 2, 'mwa04fs', '/bucket4/', '9000000021_1.fits'),
+  (9000000021, 8, 2, 'mwa01fs', '/bucket1/', '9000000021_2.fits'),
+  (9000000021, 8, 2, 'mwa02fs', '/bucket2/', '9000000021_3.fits'),
+  (9000000021, 8, 2, 'mwa03fs', '/bucket3/', '9000000021_4.fits'),
+  (9000000021, 8, 2, 'mwa04fs', '/bucket4/', '9000000021_5.fits'),
+  (9000000021, 8, 2, 'mwa01fs', '/bucket1/', '9000000021_6.fits'),
+  (9000000022, 8, 2, 'mwa01fs', '/bucket2/', '9000000022_1.fits'),
+  (9000000022, 8, 2, 'mwa02fs', '/bucket3/', '9000000022_2.fits'),
+  (9000000022, 8, 2, 'mwa03fs', '/bucket4/', '9000000022_3.fits'),
+  (9000000022, 8, 2, 'mwa04fs', '/bucket4/', '9000000022_4.fits'),
+  (9000000022, 8, 2, 'mwa01fs', '/bucket4/', '9000000022_5.fits'),
+  (9000000022, 8, 2, 'mwa02fs', '/bucket4/', '9000000022_6.fits'),
+  (9000000023, 18, 3, 'mwaingest-23', NULL, '9000000023_1.fits'),
+  (9000000023, 18, 3, 'mwaingest-23', NULL, '9000000023_2.fits'),
+  (9000000023, 18, 3, 'mwaingest-23', NULL, '9000000023_3.fits'),
+  (9000000023, 18, 3, 'mwaingest-23', NULL, '9000000023_4.fits'),
+  (9000000023, 18, 3, 'mwaingest-23', NULL, '9000000023_5.fits'),
+  (9000000023, 18, 3, 'mwaingest-23', NULL, '9000000023_6.fits'),
+  (9000000031, 18, 3, 'mwaingest-31', NULL, '9000000031_1.fits'),
+  (9000000031, 18, 3, 'mwaingest-31', NULL, '9000000031_2.fits'),
+  (9000000031, 18, 3, 'mwaingest-31', NULL, '9000000031_3.fits'),
+  (9000000031, 18, 3, 'mwaingest-31', NULL, '9000000031_4.fits'),
+  (9000000031, 18, 3, 'mwaingest-31', NULL, '9000000031_5.fits'),
+  (9000000031, 18, 3, 'mwaingest-31', NULL, '9000000031_6.fits'),
+  (9000000032, 18, 3, 'mwaingest-32', NULL, '9000000032_1.fits'),
+  (9000000032, 18, 3, 'mwaingest-32', NULL, '9000000032_2.fits'),
+  (9000000032, 18, 3, 'mwaingest-32', NULL, '9000000032_3.fits'),
+  (9000000032, 18, 3, 'mwaingest-32', NULL, '9000000032_4.fits'),
+  (9000000032, 18, 3, 'mwaingest-32', NULL, '9000000032_5.fits'),
+  (9000000032, 18, 3, 'mwaingest-32', NULL, '9000000032_6.fits'),
+  (9000000033, 18, 3, 'mwaingest-33', NULL, '9000000033_1.fits'),
+  (9000000033, 18, 3, 'mwaingest-33', NULL, '9000000033_2.fits'),
+  (9000000033, 18, 3, 'mwaingest-33', NULL, '9000000033_3.fits'),
+  (9000000033, 18, 3, 'mwaingest-33', NULL, '9000000033_4.fits'),
+  (9000000033, 18, 3, 'mwaingest-33', NULL, '9000000033_5.fits'),
+  (9000000033, 18, 3, 'mwaingest-33', NULL, '9000000033_6.fits'),
+  (9000000041, 18, 3, 'mwaingest-41', NULL, '9000000041_1.fits'),
+  (9000000041, 18, 3, 'mwaingest-41', NULL, '9000000041_2.fits'),
+  (9000000041, 17, 3, 'mwaingest-41', NULL, '9000000041_3.sub'),
+  (9000000041, 17, 3, 'mwaingest-41', NULL, '9000000041_4.sub'),
+  (9000000042, 18, 3, 'mwaingest-42', NULL, '9000000042_1.fits');
 
 INSERT INTO deletion_request_observation (request_id, obs_id)
 VALUES
-  (1, 11),
-  (1, 12),
-  (1, 13),
-  (2, 21),
-  (2, 22),
-  (2, 23),
-  (3, 31),
-  (3, 32),
-  (3, 33);
+  (1, 9000000011),
+  (1, 9000000012),
+  (1, 9000000013),
+  (2, 9000000021),
+  (2, 9000000022),
+  (2, 9000000023),
+  (3, 9000000031),
+  (3, 9000000032),
+  (3, 9000000033),
+  (4, 9000000041),
+  (4, 9000000042);

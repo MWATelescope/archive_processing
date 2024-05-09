@@ -8,7 +8,7 @@ import requests
 from psycopg import ClientCursor, Connection
 from psycopg.rows import dict_row
 
-logger = logging.getLogger()
+logger = logging.getLogger("archive_processing")
 
 
 class Repository:
@@ -149,7 +149,7 @@ class Repository:
         Parameters
         ----------
         sql: str
-            String of the query to pass to the server
+            Mogrified string of the query to pass to the server
         params: list
             Arguments which will be substituted into the sql string.
         fun: Callable
@@ -166,6 +166,9 @@ class Repository:
         try:
             with self.conn.transaction():
                 with ClientCursor(self.conn) as cur:
+                    # Run the Callable function, passing
+                    # in the args and return the params
+                    # needed for the SQL
                     params = fun(*args)
 
                     query = cur.mogrify(sql, params)
@@ -194,10 +197,7 @@ class Repository:
             response = requests.post(f"{self.webservices_url}{url}", json=data)
 
             if response.status_code != 200:
-                raise Exception(
-                    "Webservices request failed. Got status code"
-                    f" {response.status_code}."
-                )
+                raise Exception("Webservices request failed. Got status code" f" {response.status_code}.")
             else:
                 return response.json()
         except Exception:

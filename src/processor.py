@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 
 locations = {2: "acacia", 3: "banksia"}
 
-logger = logging.getLogger()
+logger = logging.getLogger("archive_processing")
 
 
 class Processor(ABC):

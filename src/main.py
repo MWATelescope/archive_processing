@@ -9,7 +9,7 @@ from incomplete_repository import IncompleteRepository
 from mwa_utils import locations
 
 
-logger = logging.getLogger()
+logger = logging.getLogger("archive_processing")
 
 
 def parse_arguments(args: list = sys.argv[1:]) -> argparse.Namespace:
@@ -40,13 +40,9 @@ def parse_arguments(args: list = sys.argv[1:]) -> argparse.Namespace:
     incomplete_parser = subparsers.add_parser("incomplete")
 
     incomplete_parser.add_argument("--cfg", default="../cfg/config.cfg")
-    incomplete_parser.add_argument(
-        "--location", choices=[locations[2], locations[3]], required=True
-    )
+    incomplete_parser.add_argument("--location", choices=[locations[2], locations[3]], required=True)
     incomplete_parser.add_argument("--dry_run", action="store_true")
-    incomplete_parser.add_argument(
-        "--verbose", "-v", action="store_true", default=False
-    )
+    incomplete_parser.add_argument("--verbose", "-v", action="store_true", default=False)
 
     return parser.parse_args(args)
 
@@ -98,9 +94,7 @@ def get_dsn(config: ConfigParser) -> str:
         "pass": config.get("database", "pass"),
     }
 
-    return (
-        f"postgresql://{db['user']}:{db['pass']}@{db['host']}:{db['port']}/{db['name']}"
-    )
+    return f"postgresql://{db['user']}:{db['pass']}@{db['host']}:{db['port']}/{db['name']}"
 
 
 def main() -> None:
@@ -108,9 +102,7 @@ def main() -> None:
     Entrypoint of the application. Parses command line arguments,
     passes them to a processor_factory to get a processor, and runs it.
     """
-    logging.basicConfig(
-        format="[%(asctime)s %(levelname)s] %(message)s", stream=sys.stdout
-    )
+    logging.basicConfig(format="[%(asctime)s %(levelname)s] %(message)s", stream=sys.stdout)
 
     args = parse_arguments()
     config = read_config(args.cfg)
@@ -128,9 +120,7 @@ def main() -> None:
                 webservices_url=config.get("webservices", "url"),
                 dry_run=args.dry_run,
             )
-            processor = DeleteProcessor(
-                repository=repository, dry_run=args.dry_run, config=config
-            )
+            processor = DeleteProcessor(repository=repository, dry_run=args.dry_run, config=config)
 
             if args.ids is not None:
                 processor.run(args.ids)
@@ -140,9 +130,7 @@ def main() -> None:
         case "incomplete":
             repository = IncompleteRepository(dsn=dsn, dry_run=args.dry_run)
 
-            processor = IncompleteProcessor(
-                repository=repository, dry_run=args.dry_run, config=config
-            )
+            processor = IncompleteProcessor(repository=repository, dry_run=args.dry_run, config=config)
 
             processor.run(args.location)
 

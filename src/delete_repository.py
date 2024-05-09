@@ -1,11 +1,10 @@
 import logging
-import os
 from psycopg import Connection
-from typing import Callable
+from typing import Callable, Optional
 from mwa_utils import MWAFileTypeFlags
 from repository import Repository
 
-logger = logging.getLogger()
+logger = logging.getLogger("archive_processing")
 
 
 class DeleteRepository(Repository):
@@ -65,6 +64,37 @@ class DeleteRepository(Repository):
         else:
             return []
 
+    def get_filetype_id_for_delete_request(self, delete_request_id: int) -> [int | None]:
+        """
+        Function to return a specific filetype_id or None for a given delete request.
+        None means- get rid of the whole observation, whereas a filetype_id means
+        just get rid of this type of file from the observation.
+
+        Parameters
+        ----------
+        delete_request_id: int
+            The id of the delete request for which to fetch filetype_id.
+
+        Returns
+        -------
+        int | None:
+            Filetypeid or None
+        """
+        sql = """SELECT filetype_id
+                FROM deletion_requests
+                WHERE id = %s"""
+
+        params = (delete_request_id,)
+        result = self.run_sql_get_one_row(sql, params)
+
+        if result:
+            if result["filetype_id"]:
+                return int(result["filetype_id"])
+            else:
+                return None
+        else:
+            raise Exception(f"Delete Request {delete_request_id} not found")
+
     def get_obs_ids_for_delete_request(self, delete_request_id: int) -> list:
         """
         Function to return a list of obs_ids associated with a given delete request
@@ -112,9 +142,10 @@ class DeleteRepository(Repository):
 
         return self.ws_request("/validate_obsids", data)
 
-    def get_not_deleted_obs_data_files_except_ppds(self, obs_id: int) -> list:
+    def get_not_deleted_obs_data_files_except_ppds(self, obs_id: int, filetype_id: Optional[int] = None) -> list:
         """
         Function to return a list of files associated with a given obs_id (excluding PPDs).
+        If a filetype_id is specified, limit to just that filetype_id
 
         Parameters
         ----------
@@ -126,18 +157,30 @@ class DeleteRepository(Repository):
         list:
             List of files associated with the given obs_id.
         """
-        sql = """SELECT location, bucket, CONCAT_WS('', folder, filename) as key, filename
-                FROM data_files
-                WHERE filetype NOT IN (%s)
-                AND observation_num = %s
-                AND remote_archived = True
-                AND deleted_timestamp IS NULL
-                ORDER BY filename"""
+        if filetype_id:
+            # Only this filetype_id
+            sql = """SELECT location, bucket, CONCAT_WS('', folder, filename) as key, filename
+                    FROM data_files
+                    WHERE filetype = %s
+                    AND observation_num = %s
+                    AND remote_archived = True
+                    AND deleted_timestamp IS NULL
+                    ORDER BY filename"""
+        else:
+            # all filetypes except the metafits PPD
+            sql = """SELECT location, bucket, CONCAT_WS('', folder, filename) as key, filename
+                    FROM data_files
+                    WHERE filetype NOT IN (%s)
+                    AND observation_num = %s
+                    AND remote_archived = True
+                    AND deleted_timestamp IS NULL
+                    ORDER BY filename"""
+            filetype_id = MWAFileTypeFlags.MWA_PPD_FILE.value
 
         results = self.run_sql_get_many_rows(
             sql,
             (
-                MWAFileTypeFlags.MWA_PPD_FILE.value,
+                filetype_id,
                 int(obs_id),
             ),
         )
@@ -172,26 +215,13 @@ class DeleteRepository(Repository):
         keys: list
             The list of keys in the bucket which will be deleted.
         """
-
-        # Due to data_files having a primary key on observatopm_num AND
-        # filename, we should extract the observation_num from the filenames
-        # and use that in the query
-        obsids_set = set()
-
-        # Acacia keys do not have any "folder" info e.g. xxxxxx.fits
-        # But some Banksia keys do have folder info e.g. mwa/mfa/ngas_data_volume/date/1/xxxxx.fits
-        for key in keys:
-            obsids_set.add(os.path.basename(key))
-
-        obsids_list = list(obsids_set)
-
         sql = """UPDATE data_files
                 SET deleted_timestamp = NOW()
                 WHERE deleted_timestamp IS NULL
                 AND filename = ANY(%s)
                 AND observation_num = ANY(%s);"""
 
-        self.run_function_in_transaction(sql, delete_func, bucket, keys, obsids_list)
+        self.run_function_in_transaction(sql, delete_func, bucket, keys)
 
     def set_obs_id_to_deleted(self, obs_id: int) -> None:
         """
