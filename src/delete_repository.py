@@ -64,7 +64,7 @@ class DeleteRepository(Repository):
         else:
             return []
 
-    def get_filetype_id_for_delete_request(self, delete_request_id: int) -> [int | None]:
+    def get_filetype_id_for_delete_request(self, delete_request_id: int) -> Optional[int]:
         """
         Function to return a specific filetype_id or None for a given delete request.
         None means- get rid of the whole observation, whereas a filetype_id means
