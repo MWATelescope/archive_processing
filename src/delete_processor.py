@@ -16,14 +16,12 @@ logger = logging.getLogger("archive_processing")
 
 class DeleteProcessor(Processor):
     def __init__(
-        self,
-        repository: DeleteRepository,
-        dry_run: bool = False,
-        config: ConfigParser = None,
+        self, repository: DeleteRepository, dry_run: bool = False, config: ConfigParser = None, force: bool = False
     ):
         super().__init__(dry_run)
         self.config = config
         self.repository = repository
+        self.force = force
         self.acacia_sleep_time: int = config.getint("delete_processor", "acacia_sleep_time")
 
     def _parse_ids(self, ids: str | None) -> list | None:
@@ -211,12 +209,13 @@ class DeleteProcessor(Processor):
             if filetype_id:
                 logger.info(f"Delete request {delete_request_id} is for filetype_id {filetype_id} only.")
 
-            if invalid_obs_ids:
+            if invalid_obs_ids and self.force:
                 # Shouldn't happen, but catching the case where an observation was added to
                 # a collection after the delete request was created
                 logger.error(
                     f"Delete request {delete_request_id} contains observations that"
-                    " cannot be deleted. Please check and try again."
+                    f" cannot be deleted. Invalid obsids: {invalid_obs_ids}. Please check and try again, "
+                    "or pass the --force argument."
                 )
                 sys.exit(0)
 

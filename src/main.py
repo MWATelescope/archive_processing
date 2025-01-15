@@ -36,6 +36,7 @@ def parse_arguments(args: list = sys.argv[1:]) -> argparse.Namespace:
     delete_parser.add_argument("--cfg", default="../cfg/config.cfg")
     delete_parser.add_argument("--dry_run", action="store_true")
     delete_parser.add_argument("--verbose", "-v", action="store_true", default=False)
+    delete_parser.add_argument("--force", "-f", action="store_true", default=False)
 
     incomplete_parser = subparsers.add_parser("incomplete")
 
@@ -120,7 +121,7 @@ def main() -> None:
                 webservices_url=config.get("webservices", "url"),
                 dry_run=args.dry_run,
             )
-            processor = DeleteProcessor(repository=repository, dry_run=args.dry_run, config=config)
+            processor = DeleteProcessor(repository=repository, dry_run=args.dry_run, config=config, force=args.force)
 
             if args.ids is not None:
                 processor.run(args.ids)
