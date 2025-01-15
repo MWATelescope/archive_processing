@@ -216,7 +216,7 @@ class DeleteRepository(Repository):
             The list of keys in the bucket which will be deleted.
         """
         sql = """UPDATE data_files
-                SET deleted_timestamp = NOW()
+                SET deleted_timestamp = NOW(), deleted = True
                 WHERE deleted_timestamp IS NULL
                 AND filename = ANY(%s)
                 AND observation_num = ANY(%s);"""
