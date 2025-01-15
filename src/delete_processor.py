@@ -209,15 +209,22 @@ class DeleteProcessor(Processor):
             if filetype_id:
                 logger.info(f"Delete request {delete_request_id} is for filetype_id {filetype_id} only.")
 
-            if invalid_obs_ids and self.force:
-                # Shouldn't happen, but catching the case where an observation was added to
-                # a collection after the delete request was created
+            if invalid_obs_ids and not self.force:
+                # Shouldn't happen often, but catching the case where an observation was added to
+                # a collection after the delete request was created, or where
+                # calibrator obs are completely useless.
                 logger.error(
                     f"Delete request {delete_request_id} contains observations that"
                     f" cannot be deleted. Invalid obsids: {invalid_obs_ids}. Please check and try again, "
                     "or pass the --force argument."
                 )
                 sys.exit(0)
+            elif invalid_obs_ids and self.force:
+                logger.warning(
+                    f"Delete request {delete_request_id} contains observations that"
+                    " can only be deleted with the --force argument passed in. Obsids: "
+                    f"{invalid_obs_ids}. These obsids will be deleted as FORCED is TRUE"
+                )
 
             for index, obs_id in enumerate(obs_ids):
                 obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(obs_id, filetype_id)
