@@ -63,7 +63,28 @@ class DeleteProcessor(Processor):
         -------
         A list of filenames which were deleted from the bucket.
         """
-        response = bucket.delete_objects(Delete={"Objects": [{"Key": key} for key in keys]})
+        MAX_ATTEMPTS = 3
+        current_attempt = 0
+
+        while current_attempt <= MAX_ATTEMPTS:
+            current_attempt += 1
+
+            try:
+                response = bucket.delete_objects(Delete={"Objects": [{"Key": key} for key in keys]})
+                # on success leave the loop
+                break
+
+            except boto3.ClientError as client_exception:
+                logger.warning(
+                    f"Boto3 ClientError while calling delete_objects(): {client_exception.response['Error']['Code']}"
+                    f":{client_exception.response['Error']['Message']}. "
+                    f"Attempt {current_attempt} of {MAX_ATTEMPTS}"
+                )
+            except Exception as other_exception:
+                logger.warning(
+                    f"Exception while calling delete_objects(): {other_exception}. "
+                    f"Attempt {current_attempt} of {MAX_ATTEMPTS}"
+                )
 
         deleted_objects = response["Deleted"]
 
@@ -108,7 +129,7 @@ class DeleteProcessor(Processor):
         # If we've received a signal, do not process this batch and exit.
         # Allows in progress batches to complete execution
         if self.terminate:
-            logger.warn("Exiting.")
+            logger.warning("Exiting.")
             sys.exit(0)
 
         try:
@@ -313,7 +334,7 @@ class DeleteProcessor(Processor):
 
             for obs_id in delete_requests[delete_request_id]:
                 if self.terminate:
-                    logger.warn("Exiting.")
+                    logger.warning("Exiting.")
                     sys.exit(0)
 
                 # Check if we are deleting all or only 1 type of file from this observation
