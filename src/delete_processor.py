@@ -4,6 +4,7 @@ import sys
 import time
 import boto3
 from typing import Optional
+import botocore
 from botocore.config import Config
 from collections import defaultdict
 from configparser import ConfigParser
@@ -74,7 +75,7 @@ class DeleteProcessor(Processor):
                 # on success leave the loop
                 break
 
-            except boto3.ClientError as client_exception:
+            except botocore.exceptions.ClientError as client_exception:
                 logger.warning(
                     f"Boto3 ClientError while calling delete_objects(): {client_exception.response['Error']['Code']}"
                     f":{client_exception.response['Error']['Message']}. "
