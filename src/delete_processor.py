@@ -67,7 +67,7 @@ class DeleteProcessor(Processor):
         MAX_ATTEMPTS = 3
         current_attempt = 0
 
-        while current_attempt <= MAX_ATTEMPTS:
+        while current_attempt < MAX_ATTEMPTS:
             current_attempt += 1
 
             try:
@@ -81,11 +81,18 @@ class DeleteProcessor(Processor):
                     f":{client_exception.response['Error']['Message']}. "
                     f"Attempt {current_attempt} of {MAX_ATTEMPTS}"
                 )
+
+                if current_attempt == 3:
+                    raise
+
             except Exception as other_exception:
                 logger.warning(
                     f"Exception while calling delete_objects(): {other_exception}. "
                     f"Attempt {current_attempt} of {MAX_ATTEMPTS}"
                 )
+
+                if current_attempt == 3:
+                    raise
 
         deleted_objects = response["Deleted"]
 
