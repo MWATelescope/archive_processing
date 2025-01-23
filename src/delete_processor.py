@@ -258,8 +258,9 @@ class DeleteProcessor(Processor):
             for index, obs_id in enumerate(obs_ids):
                 obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(obs_id, filetype_id)
 
-                if len(obs_files) > 0:
-                    delete_requests[delete_request_id].append(obs_id)
+                # Even if there are 0 files (for the whole obs or just this filetype) to delete
+                # we still want to include this obsid
+                delete_requests[delete_request_id].append(obs_id)
 
                 logger.info(f"Processing obs_id {obs_id} ({index + 1}/{len(obs_ids)}).")
                 logger.info(f"obs_id {obs_id} contains {len(obs_files)} files.")
@@ -340,13 +341,13 @@ class DeleteProcessor(Processor):
 
             delete_request_has_missing_files = False
 
+            # Check if we are deleting all or only 1 type of file from this observation
+            filetype_id: Optional[int] = self.repository.get_filetype_id_for_delete_request(delete_request_id)
+
             for obs_id in delete_requests[delete_request_id]:
                 if self.terminate:
                     logger.warning("Exiting.")
                     sys.exit(0)
-
-                # Check if we are deleting all or only 1 type of file from this observation
-                filetype_id: Optional[int] = self.repository.get_filetype_id_for_delete_request(delete_request_id)
 
                 obs_files = self.repository.get_not_deleted_obs_data_files_except_ppds(obs_id, filetype_id)
 
