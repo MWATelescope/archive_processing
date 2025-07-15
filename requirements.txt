@@ -1,6 +1,0 @@
-astropy
-boto3
-moto
-psycopg
-pytest
-pytest-postgresql
