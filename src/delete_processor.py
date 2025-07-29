@@ -75,11 +75,11 @@ class DeleteProcessor(Processor):
 
             try:
                 delete_payload={"Objects": [{"Key": key} for key in keys]}
-                payload_bytes = json.dumps(delete_payload).encode('utf-8')
-                md5_digest = hashlib.md5(payload_bytes).digest()
-                md5_b64 = base64.b64encode(md5_digest).decode('utf-8')
+                #payload_bytes = json.dumps(delete_payload).encode('utf-8')
+                #md5_digest = hashlib.md5(payload_bytes).digest()
+                #md5_b64 = base64.b64encode(md5_digest).decode('utf-8')
 
-                response = bucket.delete_objects(Delete=delete_payload, ContentMD5=md5_b64)
+                response = bucket.delete_objects(Delete=delete_payload)
                 # on success leave the loop
                 break
 
