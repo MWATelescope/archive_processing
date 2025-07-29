@@ -1,4 +1,7 @@
+import base64
 import logging
+import hashlib
+import json
 import os
 import sys
 import time
@@ -71,7 +74,12 @@ class DeleteProcessor(Processor):
             current_attempt += 1
 
             try:
-                response = bucket.delete_objects(Delete={"Objects": [{"Key": key} for key in keys]})
+                delete_payload={"Objects": [{"Key": key} for key in keys]}
+                payload_bytes = json.dumps(delete_payload).encode('utf-8')
+                md5_digest = hashlib.md5(payload_bytes).digest()
+                md5_b64 = base64.b64encode(md5_digest).decode('utf-8')
+
+                response = bucket.delete_objects(Delete=delete_payload, ContentMD5=md5_b64)
                 # on success leave the loop
                 break
 
