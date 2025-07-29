@@ -127,7 +127,7 @@ class DeleteProcessor(Processor):
         Parameters
         ----------
         location: int
-            Number representing the location of files, usually either Acacia (2) or Banksia (3)
+            Number representing the location of files, usually either Acacia mwaingest (2) or Banksia (3) or Acacia mwa (4)
         bucket: str
             The name of a bucket within location
         keys_to_delete: list[str]
@@ -144,12 +144,12 @@ class DeleteProcessor(Processor):
             config = Config(connect_timeout=60, retries={"mode": "standard"})
 
             match locations[location]:
-                case "acacia":
+                case "acacia_mwa":
                     s3 = boto3.resource(
                         "s3",
-                        aws_access_key_id=self.config.get("acacia", "aws_access_key_id"),
-                        aws_secret_access_key=self.config.get("acacia", "aws_secret_access_key"),
-                        endpoint_url=self.config.get("acacia", "endpoint_url"),
+                        aws_access_key_id=self.config.get("acacia_mwa", "aws_access_key_id"),
+                        aws_secret_access_key=self.config.get("acacia_mwa", "aws_secret_access_key"),
+                        endpoint_url=self.config.get("acacia_mwa", "endpoint_url"),
                         config=config,
                     )
                 case "banksia":
@@ -306,7 +306,7 @@ class DeleteProcessor(Processor):
                         keys_to_delete = []
                         counter = 0
                         # Now sleep for a bit to allow acacia to digest the deletes
-                        if location == 2:
+                        if location == 2 or location == 4:
                             logger.info(f"Sleeping for {self.acacia_sleep_time} seconds")
                             time.sleep(self.acacia_sleep_time)
 

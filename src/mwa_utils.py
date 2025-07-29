@@ -2,7 +2,7 @@ import datetime
 from enum import Enum
 from astropy.time import Time
 
-locations = {2: "acacia", 3: "banksia"}
+locations = {2: "acacia_mwaingest", 3: "banksia", 4: "acacia_mwa"}
 
 
 class MWAFileTypeFlags(Enum):
