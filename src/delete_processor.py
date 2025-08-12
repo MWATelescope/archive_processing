@@ -1,7 +1,4 @@
-import base64
 import logging
-import hashlib
-import json
 import os
 import sys
 import time
@@ -128,7 +125,7 @@ class DeleteProcessor(Processor):
 
         return [deleted_filenames, obsids_list]
 
-    def _batch_delete_objects(self, location: int, bucket: str, keys_to_delete: list[str]) -> None:
+    def _batch_delete_objects(self, location: int, bucket: str, keys_to_delete: list[str], bucket_keys_remaining: int) -> None:
         """
         For a given file location, bucket within that location, and list of keys - delete those keys from the location.
 
@@ -140,6 +137,8 @@ class DeleteProcessor(Processor):
             The name of a bucket within location
         keys_to_delete: list[str]
             A list of string keys within bucket which will be deleted
+        bucket_keys_remaining: int
+            Number of keys left to delete
         """
 
         # If we've received a signal, do not process this batch and exit.
@@ -179,10 +178,10 @@ class DeleteProcessor(Processor):
             raise
 
         if self.dry_run:
-            logger.info(f"Would have deleted {len(keys_to_delete)} files from" f" {locations[location]}:{bucket}.")
+            logger.info(f"Would have deleted {len(keys_to_delete)} files from" f" {locations[location]}:{bucket}. ({bucket_keys_remaining} files remaining)")
             return
         else:
-            logger.info(f"Deleting {len(keys_to_delete)} files from" f" {locations[location]}:{bucket}.")
+            logger.info(f"Deleting {len(keys_to_delete)} files from" f" {locations[location]}:{bucket}. ({bucket_keys_remaining} files remaining)")
             logger.info(keys_to_delete)
 
         # If this fails, should we exit? 🤔
@@ -301,8 +300,9 @@ class DeleteProcessor(Processor):
                 keys = files[location][bucket]
                 keys_to_delete = []
                 counter = 0
+                bucket_keys_remaining = len(keys)
 
-                logger.info(f"Bucket {bucket} contains {len(keys)} files to be deleted.")
+                logger.info(f"Bucket {bucket} contains {bucket_keys_remaining} files to be deleted.")
 
                 for key in keys:
                     keys_to_delete.append(key)
@@ -310,8 +310,9 @@ class DeleteProcessor(Processor):
 
                     if counter == self.config.getint("delete_processor", "batch_size"):
                         # Delete in batches of 1000
-                        self._batch_delete_objects(location, bucket, keys_to_delete)
+                        self._batch_delete_objects(location, bucket, keys_to_delete, bucket_keys_remaining)
                         keys_to_delete = []
+                        bucket_keys_remaining -= counter
                         counter = 0
                         # Now sleep for a bit to allow acacia to digest the deletes
                         if location == 2 or location == 4:
@@ -320,7 +321,7 @@ class DeleteProcessor(Processor):
 
                 # Delete any that are left!
                 if keys_to_delete:
-                    self._batch_delete_objects(location, bucket, keys_to_delete)
+                    self._batch_delete_objects(location, bucket, keys_to_delete, bucket_keys_remaining)
 
     def _review_delete_requests(self, delete_requests: dict) -> tuple[int, dict]:
         """
